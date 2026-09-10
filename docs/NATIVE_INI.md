@@ -23,12 +23,19 @@ Level=1
 | `MaxGeneratedFrames` | `3` | 每个真实帧最多生成 1/2/3 帧，对应 2X/3X/4X；实际倍率由游戏请求决定 |
 | `Level` | `1` | `0` 关闭日志，`1` 仅错误，`2` 运行诊断，`3` 详细日志 |
 
-## 两档预设
+## 预设与安装工具
 
-- `config/presets/sm86-default.ini`：精确默认档，`HardwareBilinear=0`。
-- `config/presets/sm86-performance.ini`：性能档，`HardwareBilinear=1`。
+| 文件 | 路由 | 采样 | 总倍率上限 |
+|---|---|---|---|
+| `config/presets/sm86-default.ini` | SM86 | 精确 | 4X |
+| `config/presets/sm86-2x.ini` | SM86 | 精确 | 2X |
+| `config/presets/sm75-default.ini` | SM75 | 精确 | 4X |
+| `config/presets/sm75-2x.ini` | SM75 | 精确 | 2X |
+| `config/presets/sm86-performance.ini` | SM86 | 近似 | 4X |
 
-两档只有采样开关不同。选一份复制为 `dlssg_sm86.ini`；覆盖前保留自己需要的 Router 与倍率上限。性能档会改变生成帧像素；误差和收益依赖输入，不保证所有游戏更快。默认精确模式已包含本版的 CUDA 整数清理优化，不需要性能档才能获得这部分收益。性能表和帧率估算见[随包 README](../README.md)。
+选择与 GPU 路由对应的文件，复制为 `dlssg_sm86.ini`，覆盖前备份原文件。SM75/SM86 均使用 PTX；3X 上限可设 `MaxGeneratedFrames=2`，游戏仍决定实际倍率。降低倍率不保证大幅节省显存。可选的 PowerShell 安装、只读检查和卸载恢复步骤见[安装指南（英文）](SETUP.md)。
+
+`sm86-performance.ini` 保留旧文件名，但不保证更快。它设置 `HardwareBilinear=1`，会改变生成帧像素；误差和收益依赖输入。其他预设均为默认精确采样。默认精确模式已包含本版的 CUDA 整数清理优化，不需要近似档才能获得这部分收益。性能表和帧率估算见[随包 README](../README.md)。
 
 ## 固定启用的精确路径
 
