@@ -6,6 +6,12 @@ Windows x64 / D3D12. Install `version.dll` and `dlssg_sm86.ini` beside the actua
 
 The DLL contains the native C++ wrapper, SM75/SM86 PTX/Cubin, model and inference graph. It does not extract, load or memory-map the original frame-generation DLL. Installed NVIDIA NGX/NVAPI/CUDA driver interfaces are still required; CUDA Toolkit is unnecessary.
 
+## Fork setup improvements
+
+This fork keeps the upstream Native 0.2.4 DLLs unchanged and adds an optional [PowerShell setup helper](docs/SETUP.md): previewable installation, existing-INI backup and restoration, proxy-conflict protection, SHA256 checks and read-only setup diagnostics. New exact SM75 and 2X-cap presets make manual configuration easier. No new engine-performance or image-quality gains are claimed; the measurements below are upstream results.
+
+See the [setup and troubleshooting guide](docs/SETUP.md) for commands, preset selection and safe rollback. Do not use DLL proxy mods in anti-cheat-protected games unless explicitly permitted by the game.
+
 ## What's new in 0.2.4
 
 - **VRAM**: fix retained old frame textures after input resources are recreated; recycle views after actual resource destruction to prevent this source of accumulated VRAM usage.
@@ -104,7 +110,7 @@ For example, **50 FPS without FG** gives a **20 ms** base frame time. Using the 
 
 | Configuration | FG group time T_FG (ms) | Estimated frame-group time (ms) | Estimated real-frame / group rate (groups/s) | Estimated total FPS |
 |---|---:|---:|---:|---:|
-| Release 0.1.0 | 6.748 | 26.748 | 37.4 | 149.5 |
+| Release 0.1.0 | 7.115 | 27.115 | 36.9 | 147.5 FPS |
 | 0.2.4 default exact (HardwareBilinear=0) | 4.804 | 24.804 | 40.3 | 161.3 FPS |
 | 0.2.4 optional approximate (HardwareBilinear=1) | 4.752 | 24.752 | 40.4 | 161.6 FPS |
 

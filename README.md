@@ -6,6 +6,18 @@ Windows x64 / D3D12。运行文件为 `version.dll` 和 `dlssg_sm86.ini`。
 
 自有 C++ 包装层、SM75/SM86 PTX/Cubin、310.1 模型和推理图都在一个 DLL 内。运行时不解压、加载或内存映射原厂 `nvngx_dlssg.dll`；仍使用系统 NVIDIA NGX/NVAPI/CUDA 驱动接口，无需 CUDA Toolkit。
 
+## 本分支的安装改进
+
+本分支保留上游 Native 0.2.4 DLL，不修改内核或模型。新增可选的 [PowerShell 安装工具与排查指南（英文）](docs/SETUP.md)：安装预览、原 INI 备份与恢复、代理 DLL 冲突保护、SHA256 校验和只读配置检查；另提供 SM75 精确档及 SM75/SM86 的 2X 上限预设。**这些改进不代表新的 FPS、延迟、显存或画质收益**，下方性能数据仍为上游测量结果。
+
+工具默认与原包一致（SM86、PTX、精确采样、最高 4X）。选择实际渲染 EXE，并先完全退出游戏。例如，在解压目录中运行以下命令预览 SM86、2X 上限安装；确认后去掉 `-WhatIf`：
+
+```powershell
+.\tools\Setup-DLSSG.ps1 -Action Install -GameExe 'D:\Games\MyGame\Game.exe' -Router SM86 -Multiplier 2 -WhatIf
+```
+
+RTX 20 系列使用 `-Router SM75`。`-Action Check` 只读检查，`-Action Uninstall` 恢复安装前的 INI；请保留 EXE 旁的 `.dlssg-setup` 备份目录。若安装后的文件被修改，卸载会停止，请先将修改后的文件另行备份再重试。不要在未明确允许此类 Mod 的反作弊游戏中使用。
+
 ## 0.2.4 简略更新说明
 
 - **显存修复**：修复输入纹理重建后旧帧资源滞留，资源实际销毁后回收视图，减少长时间运行时显存持续增长的风险。
