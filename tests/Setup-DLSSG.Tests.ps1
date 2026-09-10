@@ -252,14 +252,18 @@ try {
     }
     Test-Case 'Directory links are rejected without touching their targets' {
         $link = Join-Path $testRoot ('link-' + [Guid]::NewGuid().ToString('N'))
+        # Windows PowerShell 5.1 expands wildcards in New-Item's junction target.
+        # Literal bracket handling is exercised by the other installation tests.
+        $target = Join-Path $testRoot ('target-' + [Guid]::NewGuid().ToString('N'))
+        [IO.Directory]::Move($dir, $target)
         $kind = if ($env:OS -eq 'Windows_NT') { 'Junction' } else { 'SymbolicLink' }
-        $null = New-Item -ItemType $kind -Path $link -Target $dir
+        $null = New-Item -ItemType $kind -Path $link -Target $target
         try {
-            $before = Snapshot $dir
+            $before = Snapshot $target
             Assert-Throws { & $setup -Action Install -GameExe (Join-Path $link 'game [test].exe') } 'linked path'
-            Assert ((Snapshot $dir) -eq $before) 'Linked target was modified'
+            Assert ((Snapshot $target) -eq $before) 'Linked target was modified'
         }
-        finally { Remove-Item -LiteralPath $link -Force }
+        finally { [IO.Directory]::Delete($link) }
     }
     if ($env:OS -ne 'Windows_NT') {
         Test-Case 'Dangling INI symlinks are rejected' {
