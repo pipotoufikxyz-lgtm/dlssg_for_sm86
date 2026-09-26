@@ -1,6 +1,16 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 10 — fast-pan and HUD artifact test (current)
+## Fix 11 — frame-generation performance test (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix11-Performance-Test.zip`: all Fix10
+artifact changes plus adaptive half-resolution optical flow (automatic at 58+
+real FPS) and per-stage GPU timing in the log.
+
+- `FIX11_NOTES.md`: Blackwood/RE3 log analysis, changes, install and limits.
+- `nvsmooth30.example.ini`: optional `FlowResolution=auto|full|half` setting.
+- `DX12-Preview2-Fix11.patch`: source and document difference from Fix10.
+
+## Fix 10 — fast-pan and HUD artifact test (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix10-Motion-HUD-Test.zip` is the complete
 rebuilt package (runtime carriers, Manager, installer, tests, source, symbols).
