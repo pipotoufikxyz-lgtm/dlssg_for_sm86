@@ -1,6 +1,15 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 11 — frame-generation performance test (current)
+## Fix 12 — quality test (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix12-Quality-Test.zip`: everything in
+Fix11 plus exposure-compensated matching (auto-exposure, flicker, moving
+shadows), exposure-corrected occlusion fill and a stricter thin-object test.
+
+- `FIX12_NOTES.md`: what was still wrong, changes, simulation results, limits.
+- `DX12-Preview2-Fix12.patch`: source and document difference from Fix11.
+
+## Fix 11 — frame-generation performance test (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix11-Performance-Test.zip`: all Fix10
 artifact changes plus adaptive half-resolution optical flow (automatic at 58+
