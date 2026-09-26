@@ -1,14 +1,19 @@
-# SmoothMotion RTX20 Fix 9 — occlusion-aware synthesis test
+# SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix9-Occlusion-Test.zip` is the complete
+## Fix 10 — fast-pan and HUD artifact test (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix10-Motion-HUD-Test.zip` is the complete
 rebuilt package (runtime carriers, Manager, installer, tests, source, symbols).
-It replaces the Fix8 artifact-test build for RTX 20-series (Turing) GPUs.
 
-- `FIX9_NOTES.md`: cause of the Fix8 block artifacts, changes, install steps for
-  the Witcher 3 DX12 standalone `VERSION.dll` route, cost and limits.
-- `DX12-Preview2-Fix9.patch`: source and document difference from Fix8
-  (binaries and generated reports excluded).
-- `.sha256`: checksum of the ZIP.
+- `FIX10_NOTES.md`: what the Fix9 recording showed (30 FPS base, 60–100 px pans,
+  pole-top breakup, erased HUD text), the changes, install steps and limits.
+- `DX12-Preview2-Fix10.patch`: source and document difference from Fix9.
 
-Windows/GPU execution and in-game image quality are not yet verified. Run
-`Test/ShaderCheck.exe` (five PASS lines), then compare F11 off/on in the same scene.
+## Fix 9 — occlusion-aware synthesis test (previous, kept for rollback)
+
+- `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix9-Occlusion-Test.zip`, `FIX9_NOTES.md`,
+  `DX12-Preview2-Fix9.patch` (difference from the supplied Fix8 package).
+
+`.sha256` files hold the ZIP checksums. Windows/GPU execution and in-game image
+quality are verified only by your own testing: run `Test/ShaderCheck.exe` (five
+PASS lines), then compare F11 off/on in the same scene.

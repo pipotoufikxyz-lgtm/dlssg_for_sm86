@@ -1,0 +1,790 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/BUILD.md work10/BUILD.md
+--- Fix9/BUILD.md	2026-09-26 21:24:02.273554988 +0000
++++ Fix10/BUILD.md	2026-09-26 22:13:35.781278403 +0000
+@@ -1,4 +1,4 @@
+-# Rebuild the RTX20 preview (DX12 Preview 2 Fix 9 Occlusion Test)
++# Rebuild the RTX20 preview (DX12 Preview 2 Fix 10 Motion/HUD Test)
+ 
+ Use Python 3, Zig **0.14.1** or LLVM-MinGW, glslangValidator, and g++ for host tests.
+ No NVIDIA SDK download, CUDA toolkit, Windows SDK installation or driver binary
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix9-Occlusion-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix10-Motion-HUD-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,8 +42,8 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 was built
+-using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 and Fix10
++were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+ host environment. It runs optimized + UBSan inherited tests and records the ASan
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/CHANGELOG_RTX20.md work10/CHANGELOG_RTX20.md
+--- Fix9/CHANGELOG_RTX20.md	2026-09-26 21:24:02.273620955 +0000
++++ Fix10/CHANGELOG_RTX20.md	2026-09-26 22:13:35.781430660 +0000
+@@ -1,3 +1,9 @@
++# Fix10 fast-pan and HUD artifact test
++
++See FIX10_NOTES.md. Motion candidates up to 256 px, motion-guided midpoint
++projection, occluders judged by relative motion, and real-frame protection
++around HUD text drawn over moving scenery. Exact Fix9 upgrades are recognized.
++
+ # Fix9 occlusion-aware synthesis test
+ 
+ See FIX9_NOTES.md. Per-pixel motion candidates with symmetric patch matching and
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/FIX10_NOTES.md work10/FIX10_NOTES.md
+--- Fix9/FIX10_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix10/FIX10_NOTES.md	2026-09-26 22:13:15.506579501 +0000
+@@ -0,0 +1,90 @@
++# Fix 10 — fast-pan and HUD artifact test
++
++Runtime version: `2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test`.
++
++Fix9 removed most of the block artifacts. This build targets the two artifacts
++left in the Fix9 Witcher 3 recording (`Test_RTX2080_2026-09-27_02-50-07.mp4`,
++`nvsmooth30_34.log`: RTX 2080, 1920x1080, native D3D11 NVOF API5, Fix9 active,
++zero transfer or RTX20 failures). It is a test build; Windows/GPU execution
++and frame-time cost are still unverified.
++
++## What the recording shows
++
++- The log's counters rise by about 1,800 flow pairs per minute. That is a
++  30 FPS base doubled to 60 on the 60 Hz display.
++- During the camera orbits, the image moves 15–50 pixels between captured
++  frames. Motion between two real frames therefore reaches roughly 60–100
++  pixels.
++- **Pole top breaking into blocks.** Fix9 lowered confidence from 64 pixels of
++  motion and rejected candidates over 128 pixels. Its midpoint projection
++  searched only about ±40 pixels of motion. At these pan speeds, thin objects
++  lost their motion candidates and the occlusion bands beside them were
++  rejected.
++- **Quest text and key hints partly erased** ("CONTRACT", "Jump", "Call
++  Horse"). The optical flow follows the scene through the HUD. Only the opaque
++  glyph cores are identical in both frames, so only they were protected. The
++  antialiased edges and semi-transparent outlines were interpolated with the
++  background and ripped letters apart.
++
++## Changes
++
++- **Large motion.**
++  - Candidates are accepted up to 256 pixels of motion, with confidence fading
++    only from 160 pixels.
++  - The midpoint projection centres its search on the local motion, so objects
++    moving up to 40 pixels relative to a fast pan are still found.
++- **Relative occluder test.** One-sided occlusion fill needs the hidden side to
++  move differently. That difference is now measured relative to the candidate
++  motion rather than scaled with absolute speed, so a pole moving 20 pixels
++  against a 90-pixel pan still gets a clean background fill beside it.
++- **HUD over moving scenery.** A pixel is flagged as a static overlay when all
++  of the following hold:
++  - it is identical in both frames and has local contrast;
++  - every surrounding flow block moves;
++  - the local motion does not explain it.
++
++  Near any flagged pixel, Resolve keeps the real frame. This keeps the glyph
++  edges and outlines intact. Pixels of objects that stay fixed on screen during
++  a camera orbit, such as Geralt, sit next to zero-motion blocks and are not
++  flagged.
++- Fix9 runtime hashes are recognized for managed upgrades. Pacing, alpha
++  handling and the MEDIUM preset are unchanged.
++
++## Install
++
++1. Close the game. Replace `H:\Games\The Witcher 3\bin\x64_dx12\VERSION.dll`
++   with `Manual/Version/version.dll`, keeping the Fix9 file for rollback (or
++   use the Manager / `Manual/ASI_Only/new.asi` for those routes).
++2. Run `Test/ShaderCheck.exe`: five PASS lines expected.
++3. The log must show the version above and `artifact_guard=occlusion_aware_v3`.
++4. Repeat the same orbit around Geralt with the pole, quest text and key hints
++   in view, and compare with F11 off.
++
++## Limits
++
++- The base frame rate is the main factor. At 30 FPS, each generated frame
++  bridges 60–100 pixels in a fast pan. NVIDIA's 4x4 optical flow and the absence
++  of game depth, motion-vector or UI buffers leave some fringe or ghosting on
++  very fast, thin or transparent detail. A higher base frame rate reduces this
++  directly.
++- Text over moving scenery is shown as the real frame, not interpolated. The
++  background right around the letters therefore moves at the base frame rate.
++  HUD elements large enough to own their flow blocks are handled as before.
++- GPU cost is about the same as Fix9. It adds one 5x5 alpha gather in Resolve
++  and a few samples in Synthesize.
++
++## Validation
++
++Fifteen shader behavior groups pass in optimized and ASan/UBSan host builds.
++Two groups are new:
++
++- **HUD text over a panning scene** (opaque cores, blended edges,
++  semi-transparent outline). Fix10 keeps 1095/1104 text pixels intact; Fix9
++  keeps 914.
++- **90-pixel pan with a thin pole moving 70 pixels.** Fix10 shows the pole at
++  the midpoint in 184/184 pixels, with RMSE 13% of copying the current frame.
++  Fix9 shows 0/184.
++
++The ten-scene development simulation stays at the Fix9 level: 891 against 871
++bad pixels with clean flow, 1301 against 1282 with noisy flow. All five entry
++points compile with glslang, and with DXC in strict mode for HLSL 2016 and 2021.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/MANUAL_INSTALL.md work10/MANUAL_INSTALL.md
+--- Fix9/MANUAL_INSTALL.md	2026-09-26 21:24:02.273370675 +0000
++++ Fix10/MANUAL_INSTALL.md	2026-09-26 22:13:35.781100771 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix9-occlusion-test` in the log.
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test` in the log.
+ Generated frames use interval 0 + DO_NOT_WAIT; real frames preserve game settings.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+-No fixed cap is added. Look for artifact_guard=occlusion_aware_v2. See FIX9_NOTES.md for the quality changes and test limits.
++No fixed cap is added. Look for artifact_guard=occlusion_aware_v3. See FIX10_NOTES.md for the quality changes and test limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/Manual/README.md work10/Manual/README.md
+--- Fix9/Manual/README.md	2026-09-26 21:25:27.875820353 +0000
++++ Fix10/Manual/README.md	2026-09-26 22:14:59.299806477 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix9-occlusion-test` in the log.
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test` in the log.
+ Generated frames use interval 0 + DO_NOT_WAIT; real frames preserve game settings.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+-No fixed cap is added. Look for artifact_guard=occlusion_aware_v2. See FIX9_NOTES.md for the quality changes and test limits.
++No fixed cap is added. Look for artifact_guard=occlusion_aware_v3. See FIX10_NOTES.md for the quality changes and test limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/README.md work10/README.md
+--- Fix9/README.md	2026-09-26 21:24:02.273134507 +0000
++++ Fix10/README.md	2026-09-26 22:13:35.780874904 +0000
+@@ -1,13 +1,12 @@
+-# SmoothMotion 2.8.4 RTX20 Fix 9 — occlusion-aware synthesis test
++# SmoothMotion 2.8.4 RTX20 Fix 10 — fast-pan and HUD artifact test
+ 
+-This update targets the blocky patches that Fix8 still showed along rooflines,
+-object outlines and thin objects. Fix8 pasted the unwarped current frame into
+-rejected regions. Fix9 matches motion per pixel, adds a midpoint motion-projection
+-pass for thin objects, and fills occlusions from the one real frame that shows
+-them. UI protection and the uncapped presentation policy are unchanged.
++Fix9's occlusion-aware synthesis is retained. Fix10 targets the two artifacts
++left in the Fix9 recording: thin objects breaking up during fast camera pans at
++a 30 FPS base, and quest text or key hints being partly erased over moving
++scenery. The uncapped presentation policy is unchanged.
+ 
+-Read `FIX9_NOTES.md` for the Witcher 3 installation route, changes and tradeoffs.
+-`FIX8_NOTES.md` and older notes remain for history.
++Read `FIX10_NOTES.md` for the Witcher 3 installation route, changes and limits.
++`FIX9_NOTES.md` and older notes remain for history.
+ Host shader tests pass, but Windows/GPU execution, in-game image quality and
+ performance still need verification on your PC.
+ 
+@@ -25,8 +24,8 @@
+ 3. Use DirectX 11 or DirectX 12, windowed/borderless SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.4-rtx20-dx12-preview2-fix9-occlusion-test` and
+-   `artifact_guard=occlusion_aware_v2` in `nvsmooth30.log`. Compare F11 on/off
++4. Confirm `2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test` and
++   `artifact_guard=occlusion_aware_v3` in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+    interpolation enabled. Read `Test/rtx20-dx12-test-report.txt`; backend-counter
+@@ -50,7 +49,7 @@
+ | Pacing | Generated Present uses interval 0 + DO_NOT_WAIT; real Present preserves caller parameters |
+ | Tearing | Only valid interval-0, windowed ALLOW_TEARING requests are admitted |
+ | Unsupported | Vulkan, OpenGL, HDR/10-bit/float, exclusive fullscreen, MSAA, partial/scroll presents, protected content, multiple presentation queues/GPU nodes |
+-| Validation | Fix9 Windows/GPU execution, displayed output and performance remain unverified |
++| Validation | Fix10 Windows/GPU execution, displayed output and performance remain unverified |
+ 
+ No CUDA toolkit or Optical Flow SDK installation is required on the game PC.
+ The runtime loads its NVIDIA and shader-compiler DLLs from System32 and does
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/SOURCES.md work10/SOURCES.md
+--- Fix9/SOURCES.md	2026-09-26 21:24:02.273452456 +0000
++++ Fix10/SOURCES.md	2026-09-26 22:13:35.781199267 +0000
+@@ -1,10 +1,10 @@
+-# Fix9 source update
++# Fix10 source update
+ 
+-Fix9 changes the custom synthesis shader and adds a midpoint motion-projection
+-pass, with its pipeline texture and draw. It also updates release identities and
+-shader validation tools. See FIX9_NOTES.md and VALIDATION.md. The supplied Fix8
+-package and its bundled third-party notices are the baseline;
+-`validation/DX12-Preview2-Fix9.patch` is the complete source difference.
++Fix10 changes the synthesis shaders (large-motion search, relative occluder
++test, HUD overlay protection), release identities and shader tests. See
++FIX10_NOTES.md and VALIDATION.md. `validation/DX12-Preview2-Fix10.patch` is the
++source difference from Fix9; `validation/DX12-Preview2-Fix9.patch` is the
++difference from the supplied Fix8 package.
+ 
+ # API references
+ 
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/Test/README.md work10/Test/README.md
+--- Fix9/Test/README.md	2026-09-26 21:24:02.273278454 +0000
++++ Fix10/Test/README.md	2026-09-26 22:13:35.781009793 +0000
+@@ -1,4 +1,4 @@
+-# Fix9 shader validation
++# Fix10 shader validation
+ 
+ Run `ShaderCheck.exe` first: it must report PASS for Fullscreen, Capture,
+ Project, Synthesize and Resolve. This checks native shader compilation only.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/VALIDATION.md work10/VALIDATION.md
+--- Fix9/VALIDATION.md	2026-09-26 21:28:23.008965287 +0000
++++ Fix10/VALIDATION.md	2026-09-26 22:13:35.781358877 +0000
+@@ -1,6 +1,6 @@
+-# Fix9 validation and limits
++# Fix10 validation and limits
+ 
+-All results below refer to the current Fix9 sources. Reports contain source and
++All results below refer to the current Fix10 sources. Reports contain source and
+ binary hashes; the package verifier rejects stale reports and carriers.
+ 
+ - Five HLSL entry points (`Fullscreen`, `Capture`, `Project`, `Synthesize`,
+@@ -8,7 +8,7 @@
+   also compiled cleanly with Microsoft DXC 1.8.2407 in strict mode (`-Ges`) for
+   HLSL 2016 and 2021 (DXIL). Runtime DXBC compilation uses Windows D3DCompiler47
+   and has not been executed here: run `Test/ShaderCheck.exe`.
+-- Thirteen shader behavior groups pass in optimized and ASan/UBSan host builds.
++- Fifteen shader behavior groups pass in optimized and ASan/UBSan host builds.
+   Tests execute the production HLSL function bodies after syntax-only C++
+   translation. The model uses bilinear sampling, the midpoint projection pass and
+   half-float intermediate rounding. Groups:
+@@ -29,6 +29,11 @@
+   current frame. Fix8 fails the same limits with 791–1515 wrong pixels. In a
+   3.5-pixel crossing pole, 184/184 midpoint pole pixels are visible; Fix8 shows
+   0/184.
++- Fix10 adds two groups modelled on the Fix9 recording. HUD text over a
++  panning scene (opaque cores, blended edges, semi-transparent outline) keeps
++  1095/1104 text pixels intact; Fix9 keeps 914. In a 90-pixel pan with a thin
++  pole moving 70 pixels, 184/184 midpoint pole pixels are visible, with RMSE
++  13% of copying the current frame; Fix9 shows 0/184.
+ - Fix8 required the current frame on screen borders and in a 2-pixel margin
+   around a new object. Those expectations were replaced with exact midpoint (or
+   feathered midpoint/current) expectations, because that margin policy produced
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/build_release.py work10/source/build_release.py
+--- Fix9/source/build_release.py	2026-09-26 21:22:33.761223377 +0000
++++ Fix10/source/build_release.py	2026-09-26 22:12:52.797812637 +0000
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build and verify the complete RTX20 DX12 Preview 2 Fix 9 Occlusion Test release."""
++"""Build and verify the complete RTX20 DX12 Preview 2 Fix 10 Motion/HUD Test release."""
+ import argparse,pathlib,subprocess,sys,shutil
+ import build_toolchain
+ r=pathlib.Path(__file__).resolve().parents[1]
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/manager/helper_identity.hpp work10/source/manager/helper_identity.hpp
+--- Fix9/source/manager/helper_identity.hpp	2026-09-26 21:25:07.451941154 +0000
++++ Fix10/source/manager/helper_identity.hpp	2026-09-26 22:14:39.875764102 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="1d9ea0257de7c0dc76f57f423663dbd394deae80a420277871ce83479054c5cd";
+-inline constexpr char collector[]="5cb65fda1a9e4e6a4de9068a422d99236244644304f46eab4da9bf3b440fcd65";
++inline constexpr char installer[]="94c2468fbde2d3fd89733726eefde72357f5cfe97c7061a10647dcf3bb4f8e92";
++inline constexpr char collector[]="a7770223f9e513add51821c95b999fab16f92500dbb70cc73728ed152262790a";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/manager/manager.cpp work10/source/manager/manager.cpp
+--- Fix9/source/manager/manager.cpp	2026-09-26 21:22:33.762099377 +0000
++++ Fix10/source/manager/manager.cpp	2026-09-26 22:12:52.798601869 +0000
+@@ -438,7 +438,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- labelUi(L"RTX20 Manager 2.8.4-p2-fix9-test\nTuring",{45,app.height-77,185,app.height-36},app.small,muted());
++ labelUi(L"RTX20 Manager 2.8.4-p2-fix10-test\nTuring",{45,app.height-77,185,app.height-36},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -466,7 +466,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix9-occlusion-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Native glass interface.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Native glass interface.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/motion/identity.hpp work10/source/motion/identity.hpp
+--- Fix9/source/motion/identity.hpp	2026-09-26 21:22:46.842016833 +0000
++++ Fix10/source/motion/identity.hpp	2026-09-26 22:12:52.799288365 +0000
+@@ -89,8 +89,11 @@
+ // Exact attached Fix8 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix8Native="7af847b99eabc0a716d014e4a256458355e487ebcb4adc4a19b91daa9fd34b3e";
+ inline constexpr const char* releaseRTX20Preview2Fix8NativeProxy="2e8e8b89029ede5bfc42bf5e25133dc0b8e412b17fd9d92e05d6cc1cdbd964da";
+-inline constexpr std::array<const char*,28> previousNativeProxies{{releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,38> previousPlugins{{releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++// Exact attached Fix9 bytes retained for managed upgrades.
++inline constexpr const char* releaseRTX20Preview2Fix9Native="fdd09fad6377e6a36e4ab02d71deb3ff5117fae2352389839d03eb3b15e987d2";
++inline constexpr const char* releaseRTX20Preview2Fix9NativeProxy="db9c51e8a209b65331fa971b973c18b73908507df5b160b01c84c96d4037d590";
++inline constexpr std::array<const char*,29> previousNativeProxies{{releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,39> previousPlugins{{releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/package_release.py work10/source/package_release.py
+--- Fix9/source/package_release.py	2026-09-26 21:22:33.761343536 +0000
++++ Fix10/source/package_release.py	2026-09-26 22:12:52.797984514 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix9-Occlusion-Test'
++archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix10-Motion-HUD-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/build.py work10/source/rtx20/build.py
+--- Fix9/source/rtx20/build.py	2026-09-26 21:22:33.760921386 +0000
++++ Fix10/source/rtx20/build.py	2026-09-26 22:12:52.797298253 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix9-occlusion-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.4-rtx20-dx12-preview2-fix9-occlusion-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/interpolator.cpp work10/source/rtx20/interpolator.cpp
+--- Fix9/source/rtx20/interpolator.cpp	2026-09-26 21:17:27.299558123 +0000
++++ Fix10/source/rtx20/interpolator.cpp	2026-09-26 22:12:52.799081574 +0000
+@@ -209,7 +209,7 @@
+   require(device->CreateSamplerState(&sd,&sampler),"CreateSamplerState");
+   float settings[]={float(width),float(height),1.f/width,1.f/height};D3D11_BUFFER_DESC cb{};cb.ByteWidth=16;cb.Usage=D3D11_USAGE_IMMUTABLE;cb.BindFlags=D3D11_BIND_CONSTANT_BUFFER;D3D11_SUBRESOURCE_DATA data{settings,0,0};
+   require(device->CreateBuffer(&cb,&data,&constants),"CreateConstantBuffer");
+-  logf("[rtx20] Turing backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM preset, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v2 (midpoint motion projection, per-pixel candidate matching, one-sided occlusion fill, stationary-detail protection). Display output remains unverified.\n",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
++  logf("[rtx20] Turing backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM preset, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v3 (motion-guided midpoint projection up to 256 px, per-pixel candidate matching, one-sided occlusion fill, HUD overlay and stationary-detail protection). Display output remains unverified.\n",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
+  }
+  bool quiesce(){
+   if(cudaFault)return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/shader_regression_test.cpp work10/source/rtx20/shader_regression_test.cpp
+--- Fix9/source/rtx20/shader_regression_test.cpp	2026-09-26 21:20:51.171905838 +0000
++++ Fix10/source/rtx20/shader_regression_test.cpp	2026-09-26 22:08:16.067144898 +0000
+@@ -183,6 +183,52 @@
+   assert(visible*10>=count*9);
+  }
+  pass("thin crossing object stays visible at the midpoint");
++ {
++  // Quest text over a panning scene (Witcher 3 report): opaque glyph cores,
++  // a semi-transparent dark outline and antialiased edges. Only the cores
++  // are identical in both frames; outline and edges blend with the moving
++  // background, and the flow follows the background through the text.
++  setup(160,96);translate(10,-3);
++  // Stem spacing 13: with a 10-pixel pan, spacing 9 or 11 would map stems
++  // exactly onto neighbouring stems, which is genuinely explained motion.
++  auto glyph=[](int x,int y){return y>=40&&y<52&&x>=30&&x<130&&((x-30)%13<2||y==40||y==41);};
++  for(int y=0;y<96;++y)for(int x=0;x<160;++x){
++   bool core=glyph(x,y),edge=false,outline=false;
++   for(int j=-2;j<=2;++j)for(int i=-2;i<=2;++i)if(glyph(x+i,y+j)){if(std::abs(i)<=1&&std::abs(j)<=1)edge=true;else outline=true;}
++   for(auto* frame:{&Previous,&Current}){
++    float4 back=frame->at(x,y);
++    if(core)frame->at(x,y)={0.93f,0.91f,0.86f,0.37f};
++    else if(edge)frame->at(x,y)=lerp(back,float4(0.4f,0.38f,0.35f,0.37f),0.7f);
++    else if(outline)frame->at(x,y)=lerp(back,float4(0,0,0,0.37f),0.45f);
++   }
++  }
++  render();unsigned count=0,intact=0;
++  for(int y=38;y<54;++y)for(int x=28;x<132;++x){
++   bool text=false;
++   for(int j=-2;j<=2;++j)for(int i=-2;i<=2;++i)text|=glyph(x+i,y+j);
++   if(text){++count;intact+=error(output.at(x,y),Current.at(x,y))<0.02f;}
++  }
++  std::cout<<"overlay text intact "<<intact<<'/'<<count<<'\n';
++  assert(intact*50>=count*49);
++ }
++ pass("HUD text with blended edges over a panning scene");
++ {
++  // A fast pan at a 30 FPS base: background moves 90 pixels per real frame,
++  // a thin pole 70 pixels. Fix9 faded confidence out above 64 pixels and its
++  // projection window reached only about 40 pixels of motion.
++  setup(320,112);Texture2D<float4> truth;
++  auto pole=[](float x,float y){return x>150&&x<153.5f&&y>6;};
++  parallax(pole,{-70,0},{-90,0},truth);render();
++  double mse=0,baseline=0;unsigned count=0,visible=0,poles=0;
++  for(int y=8;y<104;++y)for(int x=100;x<220;++x){
++   float a=error(output.at(x,y),truth.at(x,y)),b=error(Current.at(x,y),truth.at(x,y));
++   mse+=a*a;baseline+=b*b;++count;
++  }
++  for(int y=12;y<104;++y)for(int x=116;x<118;++x){++poles;visible+=error(output.at(x,y),truth.at(x,y))<0.12f;}
++  std::cout<<"fast pan rmse="<<std::sqrt(mse/count)<<" current_rmse="<<std::sqrt(baseline/count)<<" pole visible "<<visible<<'/'<<poles<<'\n';
++  assert(mse<baseline*0.05&&visible*10>=poles*9);
++ }
++ pass("fast pan with a thin pole");
+  // Corrupted boundary fields must not cause NaN/Inf, OOB loads or alpha damage.
+  setup(131,81);translate(8);std::mt19937 rng(42);
+  for(auto& p:Forward.pixels)p={float(int(rng()%2049)-1024),float(int(rng()%2049)-1024)};
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/shader_source.hpp work10/source/rtx20/shader_source.hpp
+--- Fix9/source/rtx20/shader_source.hpp	2026-09-26 21:24:11.258384567 +0000
++++ Fix10/source/rtx20/shader_source.hpp	2026-09-26 22:13:43.966357887 +0000
+@@ -4,8 +4,9 @@
+ Texture2D<float4> Current : register(t1);
+ Texture2D<int2> Forward : register(t2);
+ Texture2D<int2> Backward : register(t3);
+-// Private RGBA16F intermediate: RGB is the midpoint, A is confidence.
+-// Confidence must never reach the game's backbuffer alpha channel.
++// Private RGBA16F intermediate: RGB is the midpoint, A is confidence plus 2
++// for pixels flagged as a static overlay (see overlayFlag). Neither may reach
++// the game's backbuffer alpha channel.
+ Texture2D<float4> Reprojection : register(t4);
+ // Private RGBA32F grid: two distinct motions crossing each 4x4 cell at t=0.5.
+ Texture2D<float4> Projected : register(t5);
+@@ -51,18 +52,23 @@
+ // objects are found here even when their flow lies several pixels away from
+ // where they appear, which gathering at the output pixel alone cannot do.
+ // The nearest crossing and the nearest clearly different crossing are kept.
++// Search windows follow the local motion, so fast pans (tens of pixels per
++// frame at a 30 FPS base) still reach the sources that cross this cell; the
++// window radius covers objects moving up to 40 pixels relative to that.
+ float4 Project(Vertex v) : SV_Target {
+  int2 cell=int2(floor(v.position.xy));
+  int2 maximum=int2(ceil(ImageSize*0.25))-1;
+  float2 center=float2(cell)*4+1.5;
++ float2 hint=0.5*(cellFlow(cell,false)-cellFlow(cell,true));
++ int2 offset=int2(floor(hint*0.125+0.5));
+  float2 first=float2(0,0), second=float2(0,0);
+  float firstDistance=1e9, secondDistance=1e9;
+  [loop] for(int y=-5;y<=5;++y)
+   [loop] for(int x=-5;x<=5;++x){
+-   int2 source=cell+int2(x,y);
+-   if(!all(source>=0)||!all(source<=maximum))continue;
+-   float2 origin=float2(source)*4+1.5;
+    [unroll] for(int side=0;side<2;++side){
++    int2 source=cell+(side==0?int2(0,0)-offset:offset)+int2(x,y);
++    if(!all(source>=0)||!all(source<=maximum))continue;
++    float2 origin=float2(source)*4+1.5;
+     float2 m=side==0?cellFlow(source,false):float2(0,0)-cellFlow(source,true);
+     float d=length((side==0?origin+0.5*m:origin-0.5*m)-center);
+     if(d<firstDistance){
+@@ -140,8 +146,11 @@
+ Evaluation evaluate(float2 p,float2 m,float2 reference,bool twoSided) {
+  float2 h=0.5*m, pa=p-h, pb=p+h;
+  float speed=length(m), tolerance=motionTolerance(speed);
+- float limit=1-smoothstep(64.0,128.0,speed);
++ float limit=1-smoothstep(160.0,256.0,speed);
+  bool insideA=inside(pa), insideB=inside(pb);
++ // An occluder is recognized by its motion relative to m, which stays small
++ // during fast pans; only flow error grows with the absolute speed.
++ float different=2+0.03*speed;
+  // Previous pixel should move by m; current pixel should move back by m.
+  Probe forward=probe(pa,m,false), backward=probe(pb,float2(0,0)-m,true);
+  float supportA=1-smoothstep(tolerance,2.5*tolerance,forward.support);
+@@ -165,9 +174,9 @@
+  }
+  // Off-screen hidden side: its clamped border cells must still agree, which
+  // holds for a real pan and rejects one-directional (corrupted) flow.
+- r.fromCurrent.score=insideB?supportB*limit*(insideA?smoothstep(2*tolerance,4*tolerance,forward.deviation):supportA):0;
++ r.fromCurrent.score=insideB?supportB*limit*(insideA?smoothstep(different,2*different,forward.deviation):supportA):0;
+  r.fromCurrent.color=colorB; r.fromCurrent.occluderAt=pa; r.fromCurrent.occluder=forward.other; r.fromCurrent.edge=!insideA;
+- r.fromPrevious.score=insideA?supportA*limit*(insideB?smoothstep(2*tolerance,4*tolerance,backward.deviation):supportB):0;
++ r.fromPrevious.score=insideA?supportA*limit*(insideB?smoothstep(different,2*different,backward.deviation):supportB):0;
+  r.fromPrevious.color=colorA; r.fromPrevious.occluderAt=pb; r.fromPrevious.occluder=backward.other; r.fromPrevious.edge=!insideB;
+  return r;
+ }
+@@ -177,6 +186,24 @@
+  float4 original=Current.SampleLevel(LinearClamp,v.uv,0);
+  float2 forwardMotion=flowAt(a,false), backwardMotion=float2(0,0)-flowAt(b,true);
+  float2 reference=0.5*(forwardMotion+backwardMotion);
++ // Static overlay: textured detail identical in both frames although the
++ // flow here moves. HUD text drawn over a moving scene has this signature;
++ // world geometry does not (its flow follows it). Resolve keeps the real
++ // frame around clusters of these pixels, including antialiased glyph edges
++ // and shadows that are blended with the moving background.
++ float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
++ float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
++ float contrast=max(max(colorError(original.rgb,left),colorError(original.rgb,right)),
++                    max(colorError(original.rgb,up),colorError(original.rgb,down)));
++ // Every surrounding block must move in both directions: pixels of a
++ // screen-fixed object (e.g. the character during a camera orbit) sit in
++ // blocks with zero motion somewhere nearby and are never flagged.
++ Probe still=probe(p,float2(0,0),true), stillForward=probe(p,float2(0,0),false);
++ // The local motion must also fail to explain the pixel, otherwise it is
++ // background that happens to match itself (flat or low-contrast areas).
++ float overlayFlag=(colorError(previousAt(p),original.rgb)<0.02&&contrast>0.12&&
++                    min(still.support,stillForward.support)>1.5&&
++                    nearestMatch(original.rgb,p-reference)>0.08)?2:0;
+  int2 maximum=int2(ceil(ImageSize*0.25))-1;
+  int2 cellA=int2(floor((a-1.5)*0.25)), cellB=int2(floor((b-1.5)*0.25));
+  int2 cellP=int2(floor((p-1.5)*0.25));
+@@ -199,7 +226,7 @@
+   }
+   float2 h=0.5*m;
+   if(k<16)spread=max(spread,length(m-reference));
+-  if(length(m)<128&&inside(p-h)&&inside(p+h)){
++  if(length(m)<256&&inside(p-h)&&inside(p+h)){
+    float c=colorError(previousAt(p-h),currentAt(p+h));
+    ranking=rank(ranking,m,c);
+    if(k<16&&length(m-reference)>3&&c<deviatingCost){deviating=m;deviatingCost=c;}
+@@ -210,7 +237,7 @@
+  // itself moves with that motion (no thin or new detail to protect).
+  [branch] if(spread<1){
+   Evaluation steady=evaluate(p,reference,reference,true);
+-  if(steady.confidence>0.95&&nearestMatch(original.rgb,p-reference)<0.05)return float4(steady.color,1);
++  if(steady.confidence>0.95&&nearestMatch(original.rgb,p-reference)<0.05)return float4(steady.color,1+overlayFlag);
+  }
+  float bestScore=4, bestConfidence=0; float3 bestColor=original.rgb;
+  Side fromCurrent, fromPrevious;
+@@ -263,13 +290,11 @@
+  }
+  // Thin detail present at this pixel in both frames (within a pixel) but
+  // replaced by a background match: no flow describes it, so keep it too.
+- float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
+- float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
+  float thin=max(smoothstep(0.08,0.16,min(colorError(original.rgb,left),colorError(original.rgb,right))),
+                 smoothstep(0.08,0.16,min(colorError(original.rgb,up),colorError(original.rgb,down))));
+  keep=max(keep,(1-smoothstep(0.03,0.08,here))*smoothstep(0.1,0.2,colorError(color,original.rgb))*thin);
+  color=lerp(color,original.rgb,keep);
+- return float4(color,max(valid,keep));
++ return float4(color,max(valid,keep)+overlayFlag);
+ }
+ float stationaryError(float2 uv) {
+  return colorError(Previous.SampleLevel(LinearClamp,uv,0).rgb,
+@@ -278,14 +303,21 @@
+ float4 Resolve(Vertex v) : SV_Target {
+  float4 original=Current.SampleLevel(LinearClamp,v.uv,0);
+  float4 candidate=Reprojection.SampleLevel(LinearClamp,v.uv,0);
++ float centerValid=candidate.w>=1.5?candidate.w-2:candidate.w;
+  // Neighborhood support removes isolated confident samples and feathers the
+  // fallback by about one pixel. Unlike a wide minimum filter it does not cut
+  // current-frame blocks, misplaced by half the motion, into the midpoint.
+- float support=0;
+- [unroll] for(int y=-1;y<=1;++y)
+-  [unroll] for(int x=-1;x<=1;++x)
+-   support+=Reprojection.SampleLevel(LinearClamp,v.uv+float2(x,y)*InvImageSize,0).w;
+- float confidence=smoothstep(0.2,0.9,min(candidate.w,support*(1.25/9)));
++ // The 5x5 overlay count finds HUD text over moving background.
++ float support=0, overlays=0;
++ [unroll] for(int y=-2;y<=2;++y)
++  [unroll] for(int x=-2;x<=2;++x){
++   float w=Reprojection.Load(int3(clamp(int2(floor(v.position.xy))+int2(x,y),int2(0,0),int2(ImageSize)-1),0)).w;
++   bool flagged=w>=1.5;
++   overlays+=flagged?1:0;
++   if(abs(x)<=1&&abs(y)<=1)support+=flagged?w-2:w;
++  }
++ float confidence=smoothstep(0.2,0.9,min(centerValid,support*(1.25/9)));
++ confidence*=1-smoothstep(0.25,1.5,overlays);
+  // Screen-stationary detail is often UI. Require support from at least one
+  // neighboring pixel to avoid pinning isolated color coincidences in motion.
+  float nearby=min(min(stationaryError(v.uv+float2(1,0)*InvImageSize),
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/shaders.hlsl work10/source/rtx20/shaders.hlsl
+--- Fix9/source/rtx20/shaders.hlsl	2026-09-26 21:19:52.383206143 +0000
++++ Fix10/source/rtx20/shaders.hlsl	2026-09-26 22:11:17.446786340 +0000
+@@ -2,8 +2,9 @@
+ Texture2D<float4> Current : register(t1);
+ Texture2D<int2> Forward : register(t2);
+ Texture2D<int2> Backward : register(t3);
+-// Private RGBA16F intermediate: RGB is the midpoint, A is confidence.
+-// Confidence must never reach the game's backbuffer alpha channel.
++// Private RGBA16F intermediate: RGB is the midpoint, A is confidence plus 2
++// for pixels flagged as a static overlay (see overlayFlag). Neither may reach
++// the game's backbuffer alpha channel.
+ Texture2D<float4> Reprojection : register(t4);
+ // Private RGBA32F grid: two distinct motions crossing each 4x4 cell at t=0.5.
+ Texture2D<float4> Projected : register(t5);
+@@ -49,18 +50,23 @@
+ // objects are found here even when their flow lies several pixels away from
+ // where they appear, which gathering at the output pixel alone cannot do.
+ // The nearest crossing and the nearest clearly different crossing are kept.
++// Search windows follow the local motion, so fast pans (tens of pixels per
++// frame at a 30 FPS base) still reach the sources that cross this cell; the
++// window radius covers objects moving up to 40 pixels relative to that.
+ float4 Project(Vertex v) : SV_Target {
+  int2 cell=int2(floor(v.position.xy));
+  int2 maximum=int2(ceil(ImageSize*0.25))-1;
+  float2 center=float2(cell)*4+1.5;
++ float2 hint=0.5*(cellFlow(cell,false)-cellFlow(cell,true));
++ int2 offset=int2(floor(hint*0.125+0.5));
+  float2 first=float2(0,0), second=float2(0,0);
+  float firstDistance=1e9, secondDistance=1e9;
+  [loop] for(int y=-5;y<=5;++y)
+   [loop] for(int x=-5;x<=5;++x){
+-   int2 source=cell+int2(x,y);
+-   if(!all(source>=0)||!all(source<=maximum))continue;
+-   float2 origin=float2(source)*4+1.5;
+    [unroll] for(int side=0;side<2;++side){
++    int2 source=cell+(side==0?int2(0,0)-offset:offset)+int2(x,y);
++    if(!all(source>=0)||!all(source<=maximum))continue;
++    float2 origin=float2(source)*4+1.5;
+     float2 m=side==0?cellFlow(source,false):float2(0,0)-cellFlow(source,true);
+     float d=length((side==0?origin+0.5*m:origin-0.5*m)-center);
+     if(d<firstDistance){
+@@ -138,8 +144,11 @@
+ Evaluation evaluate(float2 p,float2 m,float2 reference,bool twoSided) {
+  float2 h=0.5*m, pa=p-h, pb=p+h;
+  float speed=length(m), tolerance=motionTolerance(speed);
+- float limit=1-smoothstep(64.0,128.0,speed);
++ float limit=1-smoothstep(160.0,256.0,speed);
+  bool insideA=inside(pa), insideB=inside(pb);
++ // An occluder is recognized by its motion relative to m, which stays small
++ // during fast pans; only flow error grows with the absolute speed.
++ float different=2+0.03*speed;
+  // Previous pixel should move by m; current pixel should move back by m.
+  Probe forward=probe(pa,m,false), backward=probe(pb,float2(0,0)-m,true);
+  float supportA=1-smoothstep(tolerance,2.5*tolerance,forward.support);
+@@ -163,9 +172,9 @@
+  }
+  // Off-screen hidden side: its clamped border cells must still agree, which
+  // holds for a real pan and rejects one-directional (corrupted) flow.
+- r.fromCurrent.score=insideB?supportB*limit*(insideA?smoothstep(2*tolerance,4*tolerance,forward.deviation):supportA):0;
++ r.fromCurrent.score=insideB?supportB*limit*(insideA?smoothstep(different,2*different,forward.deviation):supportA):0;
+  r.fromCurrent.color=colorB; r.fromCurrent.occluderAt=pa; r.fromCurrent.occluder=forward.other; r.fromCurrent.edge=!insideA;
+- r.fromPrevious.score=insideA?supportA*limit*(insideB?smoothstep(2*tolerance,4*tolerance,backward.deviation):supportB):0;
++ r.fromPrevious.score=insideA?supportA*limit*(insideB?smoothstep(different,2*different,backward.deviation):supportB):0;
+  r.fromPrevious.color=colorA; r.fromPrevious.occluderAt=pb; r.fromPrevious.occluder=backward.other; r.fromPrevious.edge=!insideB;
+  return r;
+ }
+@@ -175,6 +184,24 @@
+  float4 original=Current.SampleLevel(LinearClamp,v.uv,0);
+  float2 forwardMotion=flowAt(a,false), backwardMotion=float2(0,0)-flowAt(b,true);
+  float2 reference=0.5*(forwardMotion+backwardMotion);
++ // Static overlay: textured detail identical in both frames although the
++ // flow here moves. HUD text drawn over a moving scene has this signature;
++ // world geometry does not (its flow follows it). Resolve keeps the real
++ // frame around clusters of these pixels, including antialiased glyph edges
++ // and shadows that are blended with the moving background.
++ float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
++ float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
++ float contrast=max(max(colorError(original.rgb,left),colorError(original.rgb,right)),
++                    max(colorError(original.rgb,up),colorError(original.rgb,down)));
++ // Every surrounding block must move in both directions: pixels of a
++ // screen-fixed object (e.g. the character during a camera orbit) sit in
++ // blocks with zero motion somewhere nearby and are never flagged.
++ Probe still=probe(p,float2(0,0),true), stillForward=probe(p,float2(0,0),false);
++ // The local motion must also fail to explain the pixel, otherwise it is
++ // background that happens to match itself (flat or low-contrast areas).
++ float overlayFlag=(colorError(previousAt(p),original.rgb)<0.02&&contrast>0.12&&
++                    min(still.support,stillForward.support)>1.5&&
++                    nearestMatch(original.rgb,p-reference)>0.08)?2:0;
+  int2 maximum=int2(ceil(ImageSize*0.25))-1;
+  int2 cellA=int2(floor((a-1.5)*0.25)), cellB=int2(floor((b-1.5)*0.25));
+  int2 cellP=int2(floor((p-1.5)*0.25));
+@@ -197,7 +224,7 @@
+   }
+   float2 h=0.5*m;
+   if(k<16)spread=max(spread,length(m-reference));
+-  if(length(m)<128&&inside(p-h)&&inside(p+h)){
++  if(length(m)<256&&inside(p-h)&&inside(p+h)){
+    float c=colorError(previousAt(p-h),currentAt(p+h));
+    ranking=rank(ranking,m,c);
+    if(k<16&&length(m-reference)>3&&c<deviatingCost){deviating=m;deviatingCost=c;}
+@@ -208,7 +235,7 @@
+  // itself moves with that motion (no thin or new detail to protect).
+  [branch] if(spread<1){
+   Evaluation steady=evaluate(p,reference,reference,true);
+-  if(steady.confidence>0.95&&nearestMatch(original.rgb,p-reference)<0.05)return float4(steady.color,1);
++  if(steady.confidence>0.95&&nearestMatch(original.rgb,p-reference)<0.05)return float4(steady.color,1+overlayFlag);
+  }
+  float bestScore=4, bestConfidence=0; float3 bestColor=original.rgb;
+  Side fromCurrent, fromPrevious;
+@@ -261,13 +288,11 @@
+  }
+  // Thin detail present at this pixel in both frames (within a pixel) but
+  // replaced by a background match: no flow describes it, so keep it too.
+- float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
+- float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
+  float thin=max(smoothstep(0.08,0.16,min(colorError(original.rgb,left),colorError(original.rgb,right))),
+                 smoothstep(0.08,0.16,min(colorError(original.rgb,up),colorError(original.rgb,down))));
+  keep=max(keep,(1-smoothstep(0.03,0.08,here))*smoothstep(0.1,0.2,colorError(color,original.rgb))*thin);
+  color=lerp(color,original.rgb,keep);
+- return float4(color,max(valid,keep));
++ return float4(color,max(valid,keep)+overlayFlag);
+ }
+ float stationaryError(float2 uv) {
+  return colorError(Previous.SampleLevel(LinearClamp,uv,0).rgb,
+@@ -276,14 +301,21 @@
+ float4 Resolve(Vertex v) : SV_Target {
+  float4 original=Current.SampleLevel(LinearClamp,v.uv,0);
+  float4 candidate=Reprojection.SampleLevel(LinearClamp,v.uv,0);
++ float centerValid=candidate.w>=1.5?candidate.w-2:candidate.w;
+  // Neighborhood support removes isolated confident samples and feathers the
+  // fallback by about one pixel. Unlike a wide minimum filter it does not cut
+  // current-frame blocks, misplaced by half the motion, into the midpoint.
+- float support=0;
+- [unroll] for(int y=-1;y<=1;++y)
+-  [unroll] for(int x=-1;x<=1;++x)
+-   support+=Reprojection.SampleLevel(LinearClamp,v.uv+float2(x,y)*InvImageSize,0).w;
+- float confidence=smoothstep(0.2,0.9,min(candidate.w,support*(1.25/9)));
++ // The 5x5 overlay count finds HUD text over moving background.
++ float support=0, overlays=0;
++ [unroll] for(int y=-2;y<=2;++y)
++  [unroll] for(int x=-2;x<=2;++x){
++   float w=Reprojection.Load(int3(clamp(int2(floor(v.position.xy))+int2(x,y),int2(0,0),int2(ImageSize)-1),0)).w;
++   bool flagged=w>=1.5;
++   overlays+=flagged?1:0;
++   if(abs(x)<=1&&abs(y)<=1)support+=flagged?w-2:w;
++  }
++ float confidence=smoothstep(0.2,0.9,min(centerValid,support*(1.25/9)));
++ confidence*=1-smoothstep(0.25,1.5,overlays);
+  // Screen-stationary detail is often UI. Require support from at least one
+  // neighboring pixel to avoid pinning isolated color coincidences in motion.
+  float nearby=min(min(stationaryError(v.uv+float2(1,0)*InvImageSize),
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/validate_shaders.py work10/source/rtx20/validate_shaders.py
+--- Fix9/source/rtx20/validate_shaders.py	2026-09-26 21:22:33.762295777 +0000
++++ Fix10/source/rtx20/validate_shaders.py	2026-09-26 22:12:52.798891924 +0000
+@@ -10,5 +10,5 @@
+   result=subprocess.run(cmd,capture_output=True,text=True)
+   if result.returncode:print(result.stdout,result.stderr);result.check_returncode()
+   results.append({'entry':entry,'result':'PASS','output':result.stdout.strip()});print('PASS HLSL syntax:',entry,flush=True)
+-report={'shader_sha256':hashlib.sha256((src/'shaders.hlsl').read_bytes()).hexdigest(),'syntax_compiler':subprocess.check_output([a.glslang,'--version'],text=True).splitlines()[0]+'; HLSL -> SPIR-V syntax only, runtime uses D3DCompiler47 -> DXBC','results':results,'cuda_abi':'Inherited CUDA ABI header unchanged from supplied Fix7; previous ABI assertions not rerun','cuda_header_sha256':hashlib.sha256((src/'include/cuda.h').read_bytes()).hexdigest(),'windows_shader_execution':False,'GPU_tested':False,'validation_origin':'Fix9 occlusion test, current HLSL source'}
++report={'shader_sha256':hashlib.sha256((src/'shaders.hlsl').read_bytes()).hexdigest(),'syntax_compiler':subprocess.check_output([a.glslang,'--version'],text=True).splitlines()[0]+'; HLSL -> SPIR-V syntax only, runtime uses D3DCompiler47 -> DXBC','results':results,'cuda_abi':'Inherited CUDA ABI header unchanged from supplied Fix7; previous ABI assertions not rerun','cuda_header_sha256':hashlib.sha256((src/'include/cuda.h').read_bytes()).hexdigest(),'windows_shader_execution':False,'GPU_tested':False,'validation_origin':'Fix10 motion/HUD test, current HLSL source'}
+ (root/'validation/shader-and-abi.json').write_text(json.dumps(report,indent=2)+'\n')
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/rtx20/verify.py work10/source/rtx20/verify.py
+--- Fix9/source/rtx20/verify.py	2026-09-26 21:22:46.841834118 +0000
++++ Fix10/source/rtx20/verify.py	2026-09-26 22:12:52.797575186 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix9-occlusion-test'
++assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -37,6 +37,7 @@
+ assert (root/'FIX7_NOTES.md').is_file()
+ assert (root/'FIX8_NOTES.md').is_file()
+ assert (root/'FIX9_NOTES.md').is_file()
++assert (root/'FIX10_NOTES.md').is_file()
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+@@ -69,12 +70,12 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.4-rtx20-dx12-preview2-fix9-occlusion-test' in pe.data
++ assert b'2.8.4-rtx20-dx12-preview2-fix10-motion-hud-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+  assert b'performance_cpu_wall_us' in pe.data
+- assert b'artifact_guard=occlusion_aware_v2' in pe.data
++ assert b'artifact_guard=occlusion_aware_v3' in pe.data
+  assert b'artifact_guard=conservative_v1' not in pe.data
+  assert b'MEDIUM preset' in pe.data
+  assert (root/'source/rtx20/shaders.hlsl').read_bytes() in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix1*.patch' '--exclude=DX12-Preview2-Fix9.patch' work/source/setup/payload_hashes.hpp work10/source/setup/payload_hashes.hpp
+--- Fix9/source/setup/payload_hashes.hpp	2026-09-26 21:24:57.255429762 +0000
++++ Fix10/source/setup/payload_hashes.hpp	2026-09-26 22:14:30.084000458 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "db9c51e8a209b65331fa971b973c18b73908507df5b160b01c84c96d4037d590";
+-inline constexpr const char motion[] = "fdd09fad6377e6a36e4ab02d71deb3ff5117fae2352389839d03eb3b15e987d2";
++inline constexpr const char native_proxy[] = "6fc5ca1a631a796e34d3aa8944b28d67abb886806a4435c163cbdc0fa3a34f95";
++inline constexpr const char motion[] = "39c59fdccf035026c41e07484224c8f9329c8a98f40a56355083c8154d9c30f0";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";
