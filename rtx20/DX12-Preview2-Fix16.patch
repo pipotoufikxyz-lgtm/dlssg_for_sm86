@@ -1,0 +1,456 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/BUILD.md Fix16/BUILD.md
+--- Fix15/BUILD.md	2026-09-27 20:32:08.000000000 +0000
++++ Fix16/BUILD.md	2026-09-27 20:51:04.511674802 +0000
+@@ -1,4 +1,4 @@
+-# Rebuild the RTX20 preview (DX12 Preview 2 Fix 15 Test)
++# Rebuild the RTX20 preview (DX12 Preview 2 Fix 16 Test)
+ 
+ Use Python 3, Zig **0.14.1** or LLVM-MinGW, glslangValidator, and g++ for host tests.
+ No NVIDIA SDK download, CUDA toolkit, Windows SDK installation or driver binary
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix15-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix16-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,7 +42,7 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix15
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix16
+ were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/CHANGELOG_RTX20.md Fix16/CHANGELOG_RTX20.md
+--- Fix15/CHANGELOG_RTX20.md	2026-09-27 20:26:38.000000000 +0000
++++ Fix16/CHANGELOG_RTX20.md	2026-09-27 20:51:04.511714940 +0000
+@@ -1,3 +1,9 @@
++# Fix16 10-bit SDR test
++
++See FIX16_NOTES.md. RGB10A2 UNORM backbuffers (God of War 2018 uses one in
++SDR) are interpolated on DX11 and DX12; synthesis reads full-precision frame
++copies. Exact Fix15 upgrades are recognized.
++
+ # Fix15 roofline, GPU budget and DX11 compatibility test
+ 
+ See FIX15_NOTES.md. No slivers of the next frame ahead of edges moving over
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/FIX16_NOTES.md Fix16/FIX16_NOTES.md
+--- Fix15/FIX16_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix16/FIX16_NOTES.md	2026-09-27 20:51:04.511636986 +0000
+@@ -0,0 +1,62 @@
++# Fix 16 — 10-bit SDR games (God of War 2018)
++
++Runtime version: `2.8.4-rtx20-dx12-preview2-fix16-test`.
++
++Everything in Fix15 is included. This is a test build: nothing here has run on
++Windows or a GPU.
++
++## Why God of War did not work
++
++`nvsmooth30_44.log` (Fix14, three sessions):
++
++- The ASI loaded, the DX11 swapchain was found (borderless, 1920x1080,
++  single sample, tearing allowed) and Presents were admitted.
++- The game creates its swapchain with `format=24`, which is
++  `DXGI_FORMAT_R10G10B10A2_UNORM`: a 10-bit backbuffer, used even in SDR.
++- Only 8-bit RGBA/BGRA backbuffers were accepted, so every attempt ended in
++  `Session disabled: requires windowed/borderless ... single sample` (28 times,
++  `flow_pairs=0`). That message was misleading: the window mode and sample
++  count were fine; the format was not. DLSS settings were unrelated.
++
++## Change
++
++- **RGB10A2 UNORM backbuffers** are accepted, on DX11 (including MSAA and
++  exclusive fullscreen) and DX12. All transfer paths already move 4 bytes
++  per pixel, which this format also uses.
++- **Full precision where it is visible.**
++  - NVIDIA optical flow only accepts 8-bit input, so flow still uses 8-bit
++    copies.
++  - Synthesis and resolve now read separate full-precision copies of both
++    real frames.
++  - Generated frames therefore keep the game's 10-bit gradients. With 8-bit
++    input they would band in dark fog and sky, alternating with the real
++    frames at 60 FPS.
++  - Cost: one extra frame copy and two textures (about 16 MB at 1080p).
++- **Log.**
++  - `10-bit SDR backbuffer (R10G10B10A2)` confirms the new path.
++  - Unsupported formats are now named with their number instead of the old
++    windowed/single-sample message.
++
++## Check (God of War)
++
++1. Replace `new.asi` with `Manual/ASI_Only/new.asi` (the same route that
++   worked for loading), or upgrade with the Manager (recognizes Fix15).
++2. The log must show the version above, the `10-bit SDR backbuffer` line and
++   then `Turing backend ready`. `flow_pairs` in the status must rise.
++3. Keep HDR off in the game. With HDR on, the same format carries HDR10 (PQ)
++   values. This build would also interpolate them, but the thresholds are
++   tuned for SDR and that case is untested.
++4. DLSS (any mode) is fine; the backbuffer after upscaling is what is used.
++
++## Limits
++
++- FP16 (`format=10`) HDR swapchains are still unsupported.
++- If a game uses RGB10A2 for HDR10, interpolation quality is unknown (see
++  above).
++
++## Validation
++
++- Policy tests: the format list is now exactly 24, 28, 29, 87 and 91.
++- All Fix15 host, shader (20 groups) and package checks pass.
++- The shaders are unchanged; they already work on normalized colours for
++  any UNORM format.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/MANUAL_INSTALL.md Fix16/MANUAL_INSTALL.md
+--- Fix15/MANUAL_INSTALL.md	2026-09-27 20:26:38.000000000 +0000
++++ Fix16/MANUAL_INSTALL.md	2026-09-27 20:51:04.512488124 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix15-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX15_NOTES.md for GpuBudget and ExclusiveFullscreen.
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix16-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/Manual/README.md Fix16/Manual/README.md
+--- Fix15/Manual/README.md	2026-09-27 20:27:38.000000000 +0000
++++ Fix16/Manual/README.md	2026-09-27 20:51:04.512537216 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix15-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX15_NOTES.md for GpuBudget and ExclusiveFullscreen.
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix16-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/README.md Fix16/README.md
+--- Fix15/README.md	2026-09-27 20:26:38.000000000 +0000
++++ Fix16/README.md	2026-09-27 20:51:04.521849316 +0000
+@@ -1,12 +1,15 @@
+-# SmoothMotion 2.8.4 RTX20 Fix 15 — roofline slivers, GPU budget and older DX11 games
++# SmoothMotion 2.8.4 RTX20 Fix 16 — 10-bit SDR games
++
++Fix16 adds 10-bit SDR backbuffers (RGB10A2, used by God of War 2018), with
++synthesis at full 10-bit precision. See `FIX16_NOTES.md`. Everything in Fix15
++is included:
+ 
+ Fix15 removes the dark slivers that appeared ahead of moving roofs and walls
+ over sky. It keeps frame generation within a GPU budget (default 10% of the
+ real frame time), choosing SLOW, MEDIUM or half-resolution optical flow by
+ measured cost. Flat areas take a cheaper synthesis path. DX11 games using
+ sync interval 2–4 (30 FPS locks), exclusive fullscreen or multisampled
+-backbuffers are now interpolated instead of passed through. Everything in
+-Fix14 (spaced 30 to 60 presentation, quality, glass UI) is included.
++backbuffers are interpolated instead of passed through.
+ 
+ Read `FIX15_NOTES.md` for the diagnosis, settings (`GpuBudget`,
+ `ExclusiveFullscreen`) and limits. `FIX14_NOTES.md` covers spaced
+@@ -29,14 +32,14 @@
+ 3. Use DirectX 11 or DirectX 12 (windowed, borderless or exclusive fullscreen), SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.4-rtx20-dx12-preview2-fix15-test`,
++4. Confirm `2.8.4-rtx20-dx12-preview2-fix16-test`,
+    `artifact_guard=occlusion_aware_v6`, a `GPU budget:`, a `presentation=` and a `spacing:` line in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+    interpolation enabled. Read `Test/rtx20-dx12-test-report.txt`; backend-counter
+    PASS is separate from displayed-frame and performance validation.
+ 
+-The Manager recognizes exact released Preview 1, Preview 2, Fix 1–14 and GP9
++The Manager recognizes exact released Preview 1, Preview 2, Fix 1–15 and GP9
+ Fixes1 binaries. Managed upgrades preserve ownership, backup and uninstall
+ receipts. Manual copying does not update those receipts.
+ 
+@@ -47,7 +50,7 @@
+ | GPU | NVIDIA Turing SM75 on the game's adapter; RTX 2060/2070/2080 families |
+ | OS/API | Windows 10/11 x64; DirectX 11 or DirectX 12 |
+ | Optical flow | DX11 and DX12 bridge: D3D11 NVOF API5 preferred, CUDA2 initialization fallback |
+-| Display | Windowed, borderless or exclusive fullscreen SDR, RGBA8/BGRA8; DX11 also multisampled backbuffers |
++| Display | Windowed, borderless or exclusive fullscreen SDR, RGBA8/BGRA8 or RGB10A2; DX11 also multisampled backbuffers |
+ | Dimensions | 128–3840 wide, 128–2160 high, subject to driver capabilities |
+ | DX12 queue | Exact DIRECT presentation queue, one GPU node, same adapter |
+ | DX12 swapchain | Flip model, 2–16 buffers; query the current buffer for every copy |
+@@ -55,8 +58,8 @@
+ | Tearing | Only valid interval-0, windowed ALLOW_TEARING requests are admitted |
+ | Sync interval | 0–4; intervals 2–4 (30 FPS locks) share the game's refreshes between the generated and real frame |
+ | GPU budget | `GpuBudget` percent of the real frame time (default 10); `0` = unlimited |
+-| Unsupported | Vulkan, OpenGL, HDR/10-bit/float, DX12 MSAA, partial/scroll presents, protected content, multiple presentation queues/GPU nodes, DX11 below feature level 11.0 |
+-| Validation | Fix15 Windows/GPU execution, displayed output and performance remain unverified |
++| Unsupported | Vulkan, OpenGL, HDR/FP16, DX12 MSAA, partial/scroll presents, protected content, multiple presentation queues/GPU nodes, DX11 below feature level 11.0 |
++| Validation | Fix16 Windows/GPU execution, displayed output and performance remain unverified |
+ 
+ No CUDA toolkit or Optical Flow SDK installation is required on the game PC.
+ The runtime loads its NVIDIA and shader-compiler DLLs from System32 and does
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/VALIDATION.md Fix16/VALIDATION.md
+--- Fix15/VALIDATION.md	2026-09-27 20:26:38.000000000 +0000
++++ Fix16/VALIDATION.md	2026-09-27 20:51:04.532913968 +0000
+@@ -1,6 +1,7 @@
+-# Fix15 validation and limits
++# Fix16 validation and limits
+ 
+-All results below refer to the current Fix15 sources. Reports contain source and
++All results below refer to the current Fix16 sources. Fix16 adds RGB10A2 backbuffers
++(policy tests updated); shaders and their results are unchanged from Fix15. Reports contain source and
+ binary hashes; the package verifier rejects stale reports and carriers.
+ 
+ - Fix15: seven HLSL entry points (the five below plus `Blit` and `BlitSrgb`)
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/build_release.py Fix16/source/build_release.py
+--- Fix15/source/build_release.py	2026-09-27 20:23:46.000000000 +0000
++++ Fix16/source/build_release.py	2026-09-27 20:51:04.539629979 +0000
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build and verify the complete RTX20 DX12 Preview 2 Fix 15 Test release."""
++"""Build and verify the complete RTX20 DX12 Preview 2 Fix 16 Test release."""
+ import argparse,pathlib,subprocess,sys,shutil
+ import build_toolchain
+ r=pathlib.Path(__file__).resolve().parents[1]
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/manager/helper_identity.hpp Fix16/source/manager/helper_identity.hpp
+--- Fix15/source/manager/helper_identity.hpp	2026-09-27 20:27:14.000000000 +0000
++++ Fix16/source/manager/helper_identity.hpp	2026-09-27 20:51:04.541671304 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="98a5de517b24f6ac5c5b5d2cde0b1c58f30146e90525a1d13b5d5969596c5c78";
+-inline constexpr char collector[]="c362f70663b1a395f11c946b9e065453a392ec1c9bcb38deb302b67c82a17fcb";
++inline constexpr char installer[]="315e0b2f5790e8830f09c64ef7d0961ec7bd29e6173247dcfd37ffe806ccfbf1";
++inline constexpr char collector[]="843dbb45aff7394cbdf5b3963dbf4681f1872eb7b449f54e9323b0dcbbace74d";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/manager/manager.cpp Fix16/source/manager/manager.cpp
+--- Fix15/source/manager/manager.cpp	2026-09-27 20:23:46.000000000 +0000
++++ Fix16/source/manager/manager.cpp	2026-09-27 20:51:04.541714289 +0000
+@@ -444,7 +444,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- label(L"Fix 15 \u00b7 RTX 20 Turing",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.4 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
++ label(L"Fix 16 \u00b7 RTX 20 Turing",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.4 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -473,7 +473,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix15-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix16-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/motion/identity.hpp Fix16/source/motion/identity.hpp
+--- Fix15/source/motion/identity.hpp	2026-09-27 20:23:46.000000000 +0000
++++ Fix16/source/motion/identity.hpp	2026-09-27 20:51:04.542157375 +0000
+@@ -107,8 +107,11 @@
+ // Exact released Fix14 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix14Native="ba313770e814ea8ecfb9560ad20b41dc8fa9afe557b306168881d515a9039db2";
+ inline constexpr const char* releaseRTX20Preview2Fix14NativeProxy="44537feba8a3bd379de2dc0c162a5705de15c6277bba7176c890b2bccd8146c9";
+-inline constexpr std::array<const char*,34> previousNativeProxies{{releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,44> previousPlugins{{releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++// Exact released Fix15 bytes retained for managed upgrades.
++inline constexpr const char* releaseRTX20Preview2Fix15Native="0d410ad4ad7353f21c71fc06f62bf0d479e6c2cfd3fdfd4e864ed6dd9cac0a8a";
++inline constexpr const char* releaseRTX20Preview2Fix15NativeProxy="2fb29b1d387bf279d198b4b5f2a2719b7426281d14d4e275a5e2f024173d4dbb";
++inline constexpr std::array<const char*,35> previousNativeProxies{{releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,45> previousPlugins{{releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/package_release.py Fix16/source/package_release.py
+--- Fix15/source/package_release.py	2026-09-27 20:23:46.000000000 +0000
++++ Fix16/source/package_release.py	2026-09-27 20:51:04.542251608 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix15-Test'
++archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix16-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/rtx20/build.py Fix16/source/rtx20/build.py
+--- Fix15/source/rtx20/build.py	2026-09-27 20:23:46.000000000 +0000
++++ Fix16/source/rtx20/build.py	2026-09-27 20:51:04.544750680 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix15-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix16-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.4-rtx20-dx12-preview2-fix15-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.4-rtx20-dx12-preview2-fix16-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/rtx20/interpolator.cpp Fix16/source/rtx20/interpolator.cpp
+--- Fix15/source/rtx20/interpolator.cpp	2026-09-27 20:20:30.000000000 +0000
++++ Fix16/source/rtx20/interpolator.cpp	2026-09-27 20:51:04.544940765 +0000
+@@ -123,7 +123,7 @@
+  struct Texture {
+   ComPtr<ID3D11Texture2D> texture;ComPtr<ID3D11ShaderResourceView> srv;ComPtr<ID3D11RenderTargetView> rtv;
+   CUgraphicsResource graphics{};NvOFGPUBufferHandle ofBuffer{};bool inputReady{};
+- } frames[2],flows[2],halfFrames[2],halfFlows[2],saved[2],projected,reprojected,generated;
++ } frames[2],flows[2],halfFrames[2],halfFlows[2],saved[2],projected,reprojected,generated,colors[2];
+  ComPtr<ID3D11Device> device;ComPtr<ID3D11Device1> device1;
+  ComPtr<ID3D11DeviceContext> context;ComPtr<ID3D11DeviceContext1> context1;
+  ComPtr<ID3D11Multithread> gameMultithread;
+@@ -146,6 +146,11 @@
+  // DX11 multisampled backbuffer (Fix15): captured by resolving, written by
+  // a draw (every sample receives the pixel) instead of CopyResource.
+  bool msaa{},srgb{};ComPtr<ID3D11PixelShader> blit;
++ // 10-bit SDR backbuffer (Fix16, e.g. God of War): optical flow still takes
++ // the 8-bit BGRA copies, but synthesis and resolve read full-precision
++ // copies (colors), so generated frames keep the game's 10-bit gradients
++ // instead of banding against the real frames around them.
++ bool deep{};
+  // Display refresh (0 if unknown) and generated-frame presentation state.
+  double refreshHz{};PresentationPolicy presentation;
+  // Spaced presentation: the plan for the current Present; a two-slot ring of
+@@ -185,11 +190,13 @@
+   if(!chain.Windowed&&!exclusive_fullscreen_allowed())throw std::runtime_error("exclusive fullscreen disabled by ExclusiveFullscreen=0");
+   if(d.SampleDesc.Count!=1&&queue)throw std::runtime_error("DX12 multisampled backbuffers are unsupported");
+   if(!supported_format(d.Format)||!dimensions(d.Width,d.Height)){
+-   logf("[rtx20] Unsupported backbuffer: %ux%u format=%u (supported: RGBA8/BGRA8 UNORM or sRGB, 128..3840 x 128..2160).\n",d.Width,d.Height,unsigned(d.Format));
+-   throw std::runtime_error("requires SDR RGBA8/BGRA8 128..3840 x 128..2160");
++   logf("[rtx20] Unsupported backbuffer: %ux%u format=%u (supported: RGBA8/BGRA8 UNORM or sRGB, RGB10A2 UNORM, 128..3840 x 128..2160).\n",d.Width,d.Height,unsigned(d.Format));
++   throw std::runtime_error("requires RGBA8/BGRA8/RGB10A2 128..3840 x 128..2160");
+   }
+   msaa=!queue&&d.SampleDesc.Count>1;
+   srgb=d.Format==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB||d.Format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
++  deep=d.Format==DXGI_FORMAT_R10G10B10A2_UNORM;
++  if(deep)logf("[rtx20] 10-bit SDR backbuffer (R10G10B10A2): optical flow on 8-bit copies, synthesis at full 10-bit precision. HDR output (PQ) is untested.\n");
+   if(!chain.Windowed)logf("[rtx20] Exclusive fullscreen swapchain: interpolation enabled (ExclusiveFullscreen=0 passes it through).\n");
+   if(msaa)logf("[rtx20] Multisampled DX11 backbuffer (%u samples): frames are resolved for capture and drawn back into every sample.\n",d.SampleDesc.Count);
+   // sRGB transfer is preserved by treating both snapshots as UNORM bytes.
+@@ -313,7 +320,7 @@
+   }else if(msaa){
+    // Resolve targets must share the backbuffer's format family; a typeless
+    // texture with a UNORM view keeps sRGB bytes undecoded, as above.
+-   const DXGI_FORMAT typeless=(plain==DXGI_FORMAT_B8G8R8A8_UNORM)?DXGI_FORMAT_B8G8R8A8_TYPELESS:DXGI_FORMAT_R8G8B8A8_TYPELESS;
++   const DXGI_FORMAT typeless=(plain==DXGI_FORMAT_B8G8R8A8_UNORM)?DXGI_FORMAT_B8G8R8A8_TYPELESS:(plain==DXGI_FORMAT_R10G10B10A2_UNORM)?DXGI_FORMAT_R10G10B10A2_TYPELESS:DXGI_FORMAT_R8G8B8A8_TYPELESS;
+    for(auto& t:saved){
+     D3D11_TEXTURE2D_DESC td{};td.Width=width;td.Height=height;td.MipLevels=td.ArraySize=1;td.Format=typeless;td.SampleDesc.Count=1;td.Usage=D3D11_USAGE_DEFAULT;td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+     require(device->CreateTexture2D(&td,nullptr,&t.texture),"CreateTexture2D(resolve)");
+@@ -327,6 +334,7 @@
+   texture(projected,grid_extent(width),grid_extent(height),DXGI_FORMAT_R32G32B32A32_FLOAT,true);
+   texture(reprojected,width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
+   texture(generated,width,height,plain,true);
++  if(deep)for(auto& t:colors)texture(t,width,height,DXGI_FORMAT_R10G10B10A2_UNORM,false);
+   auto vs=shader("Fullscreen","vs_5_0"),ps=shader("Capture","ps_5_0"),js=shader("Project","ps_5_0"),ms=shader("Synthesize","ps_5_0"),rs=shader("Resolve","ps_5_0");
+   require(device->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&vertex),"CreateVertexShader");
+   require(device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&capture),"CreateCaptureShader");
+@@ -465,6 +473,8 @@
+   // The half-resolution copy is kept current every frame so either flow
+   // resolution has valid history; a 2x2 box average via one bilinear tap.
+   if(halfFlow)draw(capture.Get(),halfFrames[1].rtv.Get(),{frames[1].srv.Get(),nullptr,nullptr,nullptr,nullptr,nullptr},halfWidth,halfHeight);
++  // Same bytes as the backbuffer (typeless MSAA resolve targets included).
++  if(deep)context->CopyResource(colors[1].texture.Get(),dx12?dx12->snapshot(slot):saved[slot].texture.Get());
+   frames[1].inputReady=false;captured=true;ring.captured();
+   stamp(timer,1);
+   const double wait=vsync?0:presentation.wait_seconds();
+@@ -547,8 +557,9 @@
+    ID3D11Buffer* settings=halfMode?halfConstants.Get():constants.Get();
+    const unsigned gridWidth=grid_extent(halfMode?halfWidth:width),gridHeight=grid_extent(halfMode?halfHeight:height);
+    draw(project.Get(),projected.rtv.Get(),{nullptr,nullptr,flow[0].srv.Get(),flow[1].srv.Get(),nullptr,nullptr},gridWidth,gridHeight,settings);
+-   draw(synthesize.Get(),reprojected.rtv.Get(),{frames[0].srv.Get(),frames[1].srv.Get(),flow[0].srv.Get(),flow[1].srv.Get(),nullptr,projected.srv.Get()},0,0,settings);
+-   draw(resolve.Get(),generated.rtv.Get(),{frames[0].srv.Get(),frames[1].srv.Get(),nullptr,nullptr,reprojected.srv.Get(),nullptr},0,0,settings);}
++   const auto& color=deep?colors:frames;
++   draw(synthesize.Get(),reprojected.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),flow[0].srv.Get(),flow[1].srv.Get(),nullptr,projected.srv.Get()},0,0,settings);
++   draw(resolve.Get(),generated.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),nullptr,nullptr,reprojected.srv.Get(),nullptr},0,0,settings);}
+   stamp(timer,3);
+   generatedReady=true;
+  }
+@@ -652,7 +663,7 @@
+ bool Interpolator::write_original(IDXGISwapChain* s){return write(s,false);}
+ void Interpolator::accepted(){
+  if(!impl_||!impl_->captured)return;
+- std::swap(impl_->frames[0],impl_->frames[1]);std::swap(impl_->halfFrames[0],impl_->halfFrames[1]);
++ std::swap(impl_->frames[0],impl_->frames[1]);std::swap(impl_->halfFrames[0],impl_->halfFrames[1]);std::swap(impl_->colors[0],impl_->colors[1]);
+  impl_->history=true;impl_->captured=false;impl_->lastAccepted=GetTickCount64();
+  const auto now=std::chrono::steady_clock::now();
+  if(impl_->lastAcceptedTime.time_since_epoch().count())
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/rtx20/policy.hpp Fix16/source/rtx20/policy.hpp
+--- Fix15/source/rtx20/policy.hpp	2026-09-27 20:18:20.000000000 +0000
++++ Fix16/source/rtx20/policy.hpp	2026-09-27 20:51:04.545095640 +0000
+@@ -26,7 +26,9 @@
+  return {generated,n-generated<1?1:n-generated};
+ }
+ inline bool supported_gpu(unsigned vendor,int major,int minor) { return vendor==0x10de && major==7 && minor==5; }
+-inline bool supported_format(unsigned f) { return f==28 || f==29 || f==87 || f==91; }
++// RGBA8/BGRA8 UNORM and sRGB; RGB10A2 UNORM (24, Fix16: God of War 2018 uses
++// it for SDR). All are 4 bytes per pixel. FP16/HDR formats are unsupported.
++inline bool supported_format(unsigned f) { return f==24 || f==28 || f==29 || f==87 || f==91; }
+ inline bool interpolate_request(unsigned sync,unsigned flags,bool partial,bool windowed=false,unsigned swapFlags=0) { return request_admission(sync,flags,partial,windowed,swapFlags)==Admission::eligible; }
+ inline bool fresh_history(std::uint64_t previous,std::uint64_t now) { return previous && now>=previous && now-previous<=250; }
+ inline unsigned grid_extent(unsigned n) { return (n+3)/4; }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/rtx20/policy_test.cpp Fix16/source/rtx20/policy_test.cpp
+--- Fix15/source/rtx20/policy_test.cpp	2026-09-27 20:18:52.000000000 +0000
++++ Fix16/source/rtx20/policy_test.cpp	2026-09-27 20:51:04.545443427 +0000
+@@ -9,7 +9,7 @@
+ int main(){
+  using namespace sm20;
+  assert(supported_gpu(0x10de,7,5));assert(!supported_gpu(0x1002,7,5));assert(!supported_gpu(0x10de,8,6));assert(!supported_gpu(0x10de,7,0));
+- for(unsigned f=0;f<200;++f)assert(supported_format(f)==(f==28||f==29||f==87||f==91));
++ for(unsigned f=0;f<200;++f)assert(supported_format(f)==(f==24||f==28||f==29||f==87||f==91));
+  for(unsigned sync=0;sync<7;++sync)for(unsigned flags=0;flags<2048;++flags)for(bool partial:{false,true})
+  for(bool windowed:{false,true})for(unsigned swapFlags:{0u,0x42u,0x800u,0x842u}){
+   const bool tearing=sync==0&&flags==0x200&&windowed&&(swapFlags&0x800);
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/rtx20/verify.py Fix16/source/rtx20/verify.py
+--- Fix15/source/rtx20/verify.py	2026-09-27 20:23:56.000000000 +0000
++++ Fix16/source/rtx20/verify.py	2026-09-27 20:51:04.544882857 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix15-test'
++assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix16-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -43,6 +43,7 @@
+ assert (root/'FIX13_NOTES.md').is_file()
+ assert (root/'FIX14_NOTES.md').is_file()
+ assert (root/'FIX15_NOTES.md').is_file()
++assert (root/'FIX16_NOTES.md').is_file()
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+@@ -75,13 +76,14 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.4-rtx20-dx12-preview2-fix15-test' in pe.data
++ assert b'2.8.4-rtx20-dx12-preview2-fix16-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+  assert b'performance_cpu_wall_us' in pe.data
+  assert b'artifact_guard=occlusion_aware_v6' in pe.data
+  assert b'GPU budget:' in pe.data and b'pair_gpu_us' in pe.data and b'ExclusiveFullscreen' in pe.data.replace(b'\x00',b'')
++ assert b'10-bit SDR backbuffer (R10G10B10A2)' in pe.data
+  assert b'Multisampled DX11 backbuffer' in pe.data and b'Sync interval %u' in pe.data
+  assert b'performance_gpu_us' in pe.data and b'flow_pairs_half' in pe.data
+  assert b'flow_resolution' in pe.data and 'nvsmooth30.ini'.encode('utf-16-le') in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix15/source/setup/payload_hashes.hpp Fix16/source/setup/payload_hashes.hpp
+--- Fix15/source/setup/payload_hashes.hpp	2026-09-27 20:27:04.000000000 +0000
++++ Fix16/source/setup/payload_hashes.hpp	2026-09-27 20:51:04.546133668 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "2fb29b1d387bf279d198b4b5f2a2719b7426281d14d4e275a5e2f024173d4dbb";
+-inline constexpr const char motion[] = "0d410ad4ad7353f21c71fc06f62bf0d479e6c2cfd3fdfd4e864ed6dd9cac0a8a";
++inline constexpr const char native_proxy[] = "3823d8dc52d2a04d31b61b0945a450edc19c384a2bf9e56bd6b999e880aca85d";
++inline constexpr const char motion[] = "68236391f5d09ad566d941178bee8aa944370ac3685982ffce436cf3dc619583";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";

@@ -1,6 +1,17 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 15 — roofline slivers, GPU budget and older DX11 games (current)
+## Fix 16 — 10-bit SDR games (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix16-Test.zip`: everything in Fix15,
+plus RGB10A2 backbuffers. God of War (2018) uses one in SDR; Fix15 and
+earlier disabled the session there (`nvsmooth30_44.log`: `format=24`).
+Synthesis reads full-precision 10-bit frame copies, so generated frames do
+not band.
+
+- `FIX16_NOTES.md`: log analysis, change, checks, limits.
+- `DX12-Preview2-Fix16.patch`: source and document difference from Fix15.
+
+## Fix 15 — roofline slivers, GPU budget and older DX11 games (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix15-Test.zip`: everything in Fix14,
 plus:
