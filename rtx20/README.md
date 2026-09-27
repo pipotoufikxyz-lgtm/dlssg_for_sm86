@@ -1,6 +1,31 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 14 — smooth presentation, quality and glass UI test (current)
+## Fix 15 — roofline slivers, GPU budget and older DX11 games (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix15-Test.zip`: everything in Fix14,
+plus:
+
+- no slivers of the next frame's roof or wall edge in the sky ahead of a
+  moving edge (Witcher 3 recording, RTX 2080). The HUD protection no longer
+  mistakes flat sky beside a new edge for text, and flat, matching pixels
+  are filled instead of falling back to the next frame;
+- a GPU budget (`GpuBudget`, default 10% of the real frame time) choosing
+  SLOW, MEDIUM or half-resolution optical flow by measured cost. Fix14's
+  automatic SLOW preset cost about 5.7 ms per generated frame in the user
+  log. Flat areas now also take a cheaper synthesis path (12–39% fewer
+  texture reads on the recorded frames, in the shader model);
+- DX11 games using sync interval 2–4 (30 FPS locks), exclusive fullscreen
+  (`ExclusiveFullscreen=1`, default) or multisampled backbuffers are
+  interpolated instead of passed through;
+- `Test/Test_DX11_Legacy_MSAA.cmd`, a DX11 hardware test of those paths.
+
+Files:
+
+- `FIX15_NOTES.md`: recording and log analysis, changes, settings, limits.
+- `nvsmooth30.example.ini`: adds `GpuBudget` and `ExclusiveFullscreen`.
+- `DX12-Preview2-Fix15.patch`: source and document difference from Fix14.
+
+## Fix 14 — smooth presentation, quality and glass UI test (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix14-Smooth-Test.zip`: everything in
 Fix13, plus:
@@ -70,5 +95,5 @@ rebuilt package (runtime carriers, Manager, installer, tests, source, symbols).
   `DX12-Preview2-Fix9.patch` (difference from the supplied Fix8 package).
 
 `.sha256` files hold the ZIP checksums. Windows/GPU execution and in-game image
-quality are verified only by your own testing: run `Test/ShaderCheck.exe` (five
-PASS lines), then compare F11 off/on in the same scene.
+quality are verified only by your own testing: run `Test/ShaderCheck.exe` (seven
+PASS lines in Fix15, five before), then compare F11 off/on in the same scene.
