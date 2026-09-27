@@ -1,0 +1,773 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/BUILD.md Fix17/BUILD.md
+--- Fix16/BUILD.md	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/BUILD.md	2026-09-27 21:11:03.378372053 +0000
+@@ -1,4 +1,4 @@
+-# Rebuild the RTX20 preview (DX12 Preview 2 Fix 16 Test)
++# Rebuild the RTX20 preview (DX12 Preview 2 Fix 17 Test)
+ 
+ Use Python 3, Zig **0.14.1** or LLVM-MinGW, glslangValidator, and g++ for host tests.
+ No NVIDIA SDK download, CUDA toolkit, Windows SDK installation or driver binary
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix16-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix17-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,7 +42,7 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix16
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix17
+ were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/CHANGELOG_RTX20.md Fix17/CHANGELOG_RTX20.md
+--- Fix16/CHANGELOG_RTX20.md	2026-09-27 20:44:46.000000000 +0000
++++ Fix17/CHANGELOG_RTX20.md	2026-09-27 21:11:03.378387254 +0000
+@@ -1,3 +1,11 @@
++# Fix17 performance guard test
++
++See FIX17_NOTES.md. Native-rate measurement without generation, a guard that
++pauses generation when it lowers the displayed rate (retries back off from
++30 s), hitch-proof median measurements (no more 100 ms waits), flow presets
++chosen from the native rate, hybrid-laptop notice. Exact Fix16 upgrades are
++recognized.
++
+ # Fix16 10-bit SDR test
+ 
+ See FIX16_NOTES.md. RGB10A2 UNORM backbuffers (God of War 2018 uses one in
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/FIX17_NOTES.md Fix17/FIX17_NOTES.md
+--- Fix16/FIX17_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix17/FIX17_NOTES.md	2026-09-27 21:11:03.379024202 +0000
+@@ -0,0 +1,94 @@
++# Fix 17 — performance guard and stutter fix (Genshin Impact, RTX 20 laptops)
++
++Runtime version: `2.8.4-rtx20-dx12-preview2-fix17-test`.
++
++Everything in Fix16 is included. This is a test build: nothing here has run on
++Windows or a GPU.
++
++## Was the report true?
++
++Yes. `nvsmooth30_45.log` (Fix14, Genshin Impact, RTX 2070 with Max-Q Design,
++1080p, 144 Hz, DX11):
++
++- **Native rate.** Without generation (paused or measuring phases) the game
++  ran at 119–123 FPS.
++- **With generation**, the real rate fell to 12–35 FPS.
++  - A pair cost about 17 ms of GPU time: capture about 8.8 ms, flow about
++    2.6 ms and synthesis about 6.0 ms on average, with peaks of 44 ms. The
++    game's own frame took about 8 ms.
++  - Generation therefore could not help. It roughly halved or quartered the
++    displayed frame rate.
++- **The slowdown fed itself.** The SLOW flow preset is chosen below 40 real
++  FPS. Generation pushed the real rate below 40, which selected the slower
++  preset.
++- **Stutter came from bad measurements.** The spacing reference was an
++  average over measurements that included loading hitches (`reference 2.8
++  real FPS, wait 100.0 ms`, `reference 7.8, wait 63.9 ms`).
++  - Every frame then waited up to 100 ms. The controller only recovered over
++    several seconds.
++  - This repeated whenever generation paused and resumed (menus, loading,
++    rates above 144 Hz).
++- **Likely a hybrid laptop.** The Max-Q laptop probably shows the image
++  through the integrated GPU. Every Present is then copied across GPUs, and
++  generation doubles those copies. This build logs it when it detects that
++  case.
++
++Fix15 had already reduced part of this: its GPU budget avoids SLOW when it
++does not fit. It did not prevent the overall regression or the stutter.
++
++## Changes
++
++- **The game's own rate is measured first.** Generation stays off for about
++  0.5 s at start and after every resume (`presentation=native`, then
++  `native rate: N FPS`).
++- **Performance guard.** While generating, the displayed rate is checked
++  every half second. It is twice the real rate, capped at the refresh.
++  - If it is not at least 10% above the native rate for 2 s, generation
++    pauses:
++    `guard: generation paused; displayed X FPS with it vs Y native`.
++  - It retries after 30 s, then 60, 120 and up to 300 s. It retries at once
++    if the game becomes much slower by itself (a heavier scene may benefit).
++  - A capped 30 FPS game (60 displayed vs 30 native) is never paused.
++  - `GenerateAboveRefresh=1` disables the guard.
++- **Hitch-proof measurements.** The native, reference and paused-rate
++  measurements use the median frame interval. Any gap over 0.1 s (loading,
++  shader compilation, alt-tab) restarts them. A reference that turns out
++  much too slow is corrected in the next half second, instead of about
++  1.5 s per step.
++- **Flow presets follow the native rate.** A rate lowered by generation no
++  longer selects the slower SLOW preset.
++- **Status.** `native_fps` and `guard_pauses` are added.
++
++## Policy model (game-loop simulation)
++
++- **Genshin-like laptop** (native ~118 FPS, pair cost 20 ms, 144 Hz):
++  - Fix14: stays generating at ~35 real / 70 displayed.
++  - Fix17: pauses after about 2 s, runs at the native ~118 FPS, retries
++    after 30 s, pauses again and waits 60 s next.
++- **Loading hitch of 2 s during measurement:**
++  - Fix14: reference about 2.8 FPS and 100 ms waits.
++  - Fix17: reference exactly 30 FPS.
++- **Unchanged:**
++  - RE3-like capped 30 (pipelined, 30 FPS, even spacing).
++  - Light capped 30.
++  - low_latency, uncapped GPU-bound, VSync pairs, slowing scene.
++  - Refresh pauses.
++
++## What to tell Genshin users
++
++- The log should show `native rate: ~120 FPS`. On that laptop at 144 Hz,
++  generation is expected to pause (the `guard:` line), leaving the game at
++  its normal rate with no stutter.
++- Smooth Motion helps when the game runs well below the refresh rate and
++  the GPU has spare time. Examples: a 30–60 FPS cap, or a heavy scene on a
++  desktop GPU.
++- On this laptop, capping Genshin at 60 FPS may let generation reach
++  120 displayed. The guard decides from the measured result.
++
++## Limits
++
++- The guard needs about 3 s after each start or resume (0.5 s native,
++  0.75 s measuring, 2 s of checks). A short slowdown remains visible when it
++  retries.
++- The guard compares frame rates, not latency. Generation still adds about
++  half to one real frame of latency where it is kept.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/MANUAL_INSTALL.md Fix17/MANUAL_INSTALL.md
+--- Fix16/MANUAL_INSTALL.md	2026-09-27 20:44:46.000000000 +0000
++++ Fix17/MANUAL_INSTALL.md	2026-09-27 21:11:03.379040869 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix16-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix17-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/Manual/README.md Fix17/Manual/README.md
+--- Fix16/Manual/README.md	2026-09-27 20:46:28.000000000 +0000
++++ Fix17/Manual/README.md	2026-09-27 21:11:03.379089620 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix16-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix17-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/README.md Fix17/README.md
+--- Fix16/README.md	2026-09-27 20:44:46.000000000 +0000
++++ Fix17/README.md	2026-09-27 21:11:03.382010179 +0000
+@@ -1,4 +1,10 @@
+-# SmoothMotion 2.8.4 RTX20 Fix 16 — 10-bit SDR games
++# SmoothMotion 2.8.4 RTX20 Fix 17 — performance guard and stutter fix
++
++Fix17 never lets frame generation lower the displayed frame rate: it
++measures the game's own rate first and pauses generation when generating
++shows fewer frames than native (for example a laptop RTX 2070 Max-Q in
++Genshin Impact at 120 FPS). Rate measurements ignore loading hitches, which
++caused 100 ms waits and stutter. See `FIX17_NOTES.md`.
+ 
+ Fix16 adds 10-bit SDR backbuffers (RGB10A2, used by God of War 2018), with
+ synthesis at full 10-bit precision. See `FIX16_NOTES.md`. Everything in Fix15
+@@ -32,7 +38,7 @@
+ 3. Use DirectX 11 or DirectX 12 (windowed, borderless or exclusive fullscreen), SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.4-rtx20-dx12-preview2-fix16-test`,
++4. Confirm `2.8.4-rtx20-dx12-preview2-fix17-test`,
+    `artifact_guard=occlusion_aware_v6`, a `GPU budget:`, a `presentation=` and a `spacing:` line in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/VALIDATION.md Fix17/VALIDATION.md
+--- Fix16/VALIDATION.md	2026-09-27 20:44:46.000000000 +0000
++++ Fix17/VALIDATION.md	2026-09-27 21:11:03.393110810 +0000
+@@ -1,6 +1,7 @@
+-# Fix16 validation and limits
++# Fix17 validation and limits
+ 
+-All results below refer to the current Fix16 sources. Fix16 adds RGB10A2 backbuffers
++All results below refer to the current Fix17 sources. Fix17 changes the presentation
++policy only (policy tests: Genshin-like laptop model, loading hitches, capped games); shaders are unchanged. Fix16 adds RGB10A2 backbuffers
+ (policy tests updated); shaders and their results are unchanged from Fix15. Reports contain source and
+ binary hashes; the package verifier rejects stale reports and carriers.
+ 
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/build_release.py Fix17/source/build_release.py
+--- Fix16/source/build_release.py	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/source/build_release.py	2026-09-27 21:11:03.406484825 +0000
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build and verify the complete RTX20 DX12 Preview 2 Fix 16 Test release."""
++"""Build and verify the complete RTX20 DX12 Preview 2 Fix 17 Test release."""
+ import argparse,pathlib,subprocess,sys,shutil
+ import build_toolchain
+ r=pathlib.Path(__file__).resolve().parents[1]
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/manager/helper_identity.hpp Fix17/source/manager/helper_identity.hpp
+--- Fix16/source/manager/helper_identity.hpp	2026-09-27 20:46:06.000000000 +0000
++++ Fix17/source/manager/helper_identity.hpp	2026-09-27 21:11:03.409606319 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="315e0b2f5790e8830f09c64ef7d0961ec7bd29e6173247dcfd37ffe806ccfbf1";
+-inline constexpr char collector[]="843dbb45aff7394cbdf5b3963dbf4681f1872eb7b449f54e9323b0dcbbace74d";
++inline constexpr char installer[]="c8685da2eb607a8fdc7a881c5130b4d207c65adc5db3b4e51d79ed8497694017";
++inline constexpr char collector[]="98c4faf9cb4c42dc83b8f6a3ffd0032ee031b808a27d6ab6f959ae89ea7606b7";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/manager/manager.cpp Fix17/source/manager/manager.cpp
+--- Fix16/source/manager/manager.cpp	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/source/manager/manager.cpp	2026-09-27 21:11:03.409632404 +0000
+@@ -444,7 +444,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- label(L"Fix 16 \u00b7 RTX 20 Turing",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.4 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
++ label(L"Fix 17 \u00b7 RTX 20 Turing",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.4 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -473,7 +473,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix16-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix17-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/motion/identity.hpp Fix17/source/motion/identity.hpp
+--- Fix16/source/motion/identity.hpp	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/source/motion/identity.hpp	2026-09-27 21:11:03.410216801 +0000
+@@ -110,8 +110,11 @@
+ // Exact released Fix15 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix15Native="0d410ad4ad7353f21c71fc06f62bf0d479e6c2cfd3fdfd4e864ed6dd9cac0a8a";
+ inline constexpr const char* releaseRTX20Preview2Fix15NativeProxy="2fb29b1d387bf279d198b4b5f2a2719b7426281d14d4e275a5e2f024173d4dbb";
+-inline constexpr std::array<const char*,35> previousNativeProxies{{releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,45> previousPlugins{{releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++// Exact released Fix16 bytes retained for managed upgrades.
++inline constexpr const char* releaseRTX20Preview2Fix16Native="68236391f5d09ad566d941178bee8aa944370ac3685982ffce436cf3dc619583";
++inline constexpr const char* releaseRTX20Preview2Fix16NativeProxy="3823d8dc52d2a04d31b61b0945a450edc19c384a2bf9e56bd6b999e880aca85d";
++inline constexpr std::array<const char*,36> previousNativeProxies{{releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,46> previousPlugins{{releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/package_release.py Fix17/source/package_release.py
+--- Fix16/source/package_release.py	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/source/package_release.py	2026-09-27 21:11:03.410429218 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix16-Test'
++archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix17-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/rtx20/build.py Fix17/source/rtx20/build.py
+--- Fix16/source/rtx20/build.py	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/source/rtx20/build.py	2026-09-27 21:11:03.414465019 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix16-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix17-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.4-rtx20-dx12-preview2-fix16-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.4-rtx20-dx12-preview2-fix17-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/rtx20/interpolator.cpp Fix17/source/rtx20/interpolator.cpp
+--- Fix16/source/rtx20/interpolator.cpp	2026-09-27 20:44:02.000000000 +0000
++++ Fix17/source/rtx20/interpolator.cpp	2026-09-27 21:11:03.414793959 +0000
+@@ -207,6 +207,11 @@
+   if(SUCCEEDED(swap->GetContainingOutput(&output))&&SUCCEEDED(output->GetDesc(&outputDesc))&&
+      EnumDisplaySettingsW(outputDesc.DeviceName,ENUM_CURRENT_SETTINGS,&mode)){
+    refreshHz=mode.dmDisplayFrequency>1?mode.dmDisplayFrequency:0;
++   ComPtr<IDXGIAdapter> displayAdapter;DXGI_ADAPTER_DESC displayDesc{},renderDesc{};ComPtr<IDXGIDevice> renderDxgi;ComPtr<IDXGIAdapter> renderAdapter;
++   if(SUCCEEDED(output->GetParent(IID_PPV_ARGS(&displayAdapter)))&&SUCCEEDED(displayAdapter->GetDesc(&displayDesc))&&
++      SUCCEEDED(device.As(&renderDxgi))&&SUCCEEDED(renderDxgi->GetAdapter(&renderAdapter))&&SUCCEEDED(renderAdapter->GetDesc(&renderDesc))&&
++      (displayDesc.AdapterLuid.LowPart!=renderDesc.AdapterLuid.LowPart||displayDesc.AdapterLuid.HighPart!=renderDesc.AdapterLuid.HighPart))
++    logf("[rtx20] Display is driven by another adapter (%ls; hybrid laptop): every Present is copied across adapters, and generated frames double those copies. The guard pauses generation if it lowers the displayed rate.\n",displayDesc.Description);
+    logf("[rtx20] Display: %ls %lux%lu refresh=%lu Hz; windowed=%u; generated frames presented per the presentation line below; no fixed FPS cap.\n",
+         outputDesc.DeviceName,mode.dmPelsWidth,mode.dmPelsHeight,mode.dmDisplayFrequency,unsigned(chain.Windowed));
+   }
+@@ -418,11 +423,17 @@
+   const double reference=presentation.reference>0?1/presentation.reference:0,ideal=presentation.ideal()*1000;
+   if(state!=before){
+    logf("[rtx20] presentation=%s at %.0f real FPS, %.0f Hz display%s.\n",presentation_name(state),realFps,refreshHz,
++        state==Presentation::native?"; measuring the game's own rate without generation":
++        state==Presentation::paused&&presentation.counterproductive?"; generation lowered the displayed rate (see the guard line)":
+         state==Presentation::paused?"; generated frames would not be visible (GenerateAboveRefresh=1 overrides)":
+         state==Presentation::timed?"; generated frame, then the real frame half a real-frame interval later":
+         state==Presentation::pipelined?"; previous pair shown with even spacing while the next pair is computed (one real frame more latency)":
+         state==Presentation::vblank?"; generated and real frame on consecutive refreshes":"");
+    if(presentation.spaced())logf("[rtx20] spacing: reference %.1f real FPS, wait %.1f ms (ideal %.1f ms).\n",reference,wait/1000.0,ideal);
++   if(state==Presentation::measuring&&before==Presentation::native)logf("[rtx20] native rate: %.1f FPS without generation.\n",presentation.nativeFps);
++   if(state==Presentation::paused&&presentation.counterproductive)
++    logf("[rtx20] guard: generation paused; displayed %.0f FPS with it vs %.0f native (needs %.0f%% more). Retry in %.0f s or when the game gets much slower (GenerateAboveRefresh=1 disables the guard).\n",
++         presentation.lastDisplayed,presentation.displayed(presentation.nativeFps),(PresentationPolicy::minimum_gain-1)*100,presentation.pausedUntil-now);
+    lastSpacingLog=now;loggedSpacingUs=wait;
+   }else if(presentation.spaced()&&now-lastSpacingLog>=10){
+    const unsigned change=wait>loggedSpacingUs?wait-loggedSpacingUs:loggedSpacingUs-wait;
+@@ -443,7 +454,8 @@
+   presentation.update(pacing::now(),realFps,!vsync);
+   log_presentation(before,realFps);
+   const bool fresh=history&&fresh_history(lastAccepted,GetTickCount64());
+-  if(fresh&&!presentation.generating())++performance::paused_frames;
++  if(fresh&&presentation.state==Presentation::paused)++performance::paused_frames;
++  performance::native_fps_x10=static_cast<unsigned>(presentation.nativeFps*10+0.5);performance::guard_pauses=presentation.pauses;
+   const bool interpolating=fresh&&presentation.generating();
+   const bool pipe=pipelineAvailable&&presentation.pipelined()&&!vsync;
+   if(pipe!=pipelined){pipelined=pipe;ring.reset();}
+@@ -506,7 +518,9 @@
+   }
+   if(restamp)stamp(timer,1);
+   if(dx12)dx12->mark_d3d11_work();
+-  const double fps=frameInterval>0?1/frameInterval:0;
++  // Flow rules follow the game's own rate when it is known: a rate lowered
++  // by generation itself must not select the slower SLOW preset (Fix17).
++  const double fps=std::max(frameInterval>0?1/frameInterval:0.0,presentation.nativeFps);
+   const FlowMode mode=nativeFlow?choose_flow_mode(flowSetting,halfFlow!=nullptr,qualitySetting,qualityFlow!=nullptr,flowMode,fps,frameInterval,budget,pacing::now()):FlowMode::medium;
+   if(mode!=flowMode){
+    auto ms=[&](FlowMode m){const double e=budget.estimate[FlowBudget::index(m)];return e>0?e*1000:0.0;};
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/rtx20/performance.hpp Fix17/source/rtx20/performance.hpp
+--- Fix16/source/rtx20/performance.hpp	2026-09-27 20:20:30.000000000 +0000
++++ Fix17/source/rtx20/performance.hpp	2026-09-27 21:11:03.414923620 +0000
+@@ -46,6 +46,8 @@
+ // in use, and the measured GPU time per pair of each flow mode (0: unknown).
+ inline std::atomic_uint gpu_budget_permille{},pair_gpu_us_slow{},pair_gpu_us_medium{},pair_gpu_us_half{};
+ inline std::atomic<const char*> flow_mode{"medium"};
++// Fix17 cost guard: native rate (x10) and generation pauses it caused.
++inline std::atomic_uint native_fps_x10{},guard_pauses{};
+ inline void gpu_json(char* buffer,std::size_t size){
+  if(!size)return;buffer[0]=0;std::size_t used=0;
+  for(unsigned i=0;i<gpu_samples.size();++i){
+@@ -57,11 +59,12 @@
+  const unsigned reference=reference_us.load(std::memory_order_relaxed);
+  const int n=std::snprintf(buffer+used,size-used,"\"flow_pairs_full\":%llu,\"flow_pairs_half\":%llu,\"flow_pairs_high_quality\":%llu},\"pacing_setting\":\"%s\",\"presentation\":\"%s\","
+   "\"spacing_us\":%u,\"reference_fps\":%.1f,\"timed_pairs\":%llu,\"pipelined_pairs\":%llu,\"paced_pairs\":%llu,\"spacing_wait_us\":%llu,\"generation_paused_frames\":%llu,"
+-  "\"gpu_budget_percent\":%.1f,\"flow_mode\":\"%s\",\"pair_gpu_us\":{\"slow\":%u,\"medium\":%u,\"half\":%u}",
++  "\"gpu_budget_percent\":%.1f,\"flow_mode\":\"%s\",\"pair_gpu_us\":{\"slow\":%u,\"medium\":%u,\"half\":%u},\"native_fps\":%.1f,\"guard_pauses\":%u",
+   full_flow_pairs.load(std::memory_order_relaxed),half_flow_pairs.load(std::memory_order_relaxed),quality_flow_pairs.load(std::memory_order_relaxed),pacing_setting.load(),presentation_state.load(),
+   spacing_us.load(std::memory_order_relaxed),reference?1e6/reference:0.0,timed_pairs.load(std::memory_order_relaxed),pipelined_pairs.load(std::memory_order_relaxed),
+   paced_pairs.load(std::memory_order_relaxed),spacing_wait_us.load(std::memory_order_relaxed),paused_frames.load(std::memory_order_relaxed),
+-  gpu_budget_permille.load(std::memory_order_relaxed)/10.0,flow_mode.load(),pair_gpu_us_slow.load(std::memory_order_relaxed),pair_gpu_us_medium.load(std::memory_order_relaxed),pair_gpu_us_half.load(std::memory_order_relaxed));
++  gpu_budget_permille.load(std::memory_order_relaxed)/10.0,flow_mode.load(),pair_gpu_us_slow.load(std::memory_order_relaxed),pair_gpu_us_medium.load(std::memory_order_relaxed),pair_gpu_us_half.load(std::memory_order_relaxed),
++  native_fps_x10.load(std::memory_order_relaxed)/10.0,guard_pauses.load(std::memory_order_relaxed));
+  if(n<0||static_cast<std::size_t>(n)>=size-used)buffer[0]=0;
+ }
+ // Cumulative CPU wall time, including waits. These are not GPU durations or
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/rtx20/policy.hpp Fix17/source/rtx20/policy.hpp
+--- Fix16/source/rtx20/policy.hpp	2026-09-27 20:44:02.000000000 +0000
++++ Fix17/source/rtx20/policy.hpp	2026-09-27 21:11:03.414944795 +0000
+@@ -163,12 +163,22 @@
+ // shrinks it whenever the real rate falls below the rate measured without it.
+ // Games presenting with VSync pair both frames on consecutive refreshes
+ // (sync interval 1) instead of waiting on the CPU.
++//   native:    ~0.5 s without generation, to measure the game's own rate
++//              (Fix17);
+ //   measuring: ~0.75 s unspaced, to measure the real rate;
+ //   timed / pipelined: spaced presentation (Pacing=auto chooses);
+ //   vblank:    both frames with sync interval 1 (Pacing=vblank, Fix13);
+ //   immediate: unspaced (Pacing=off);
+ //   paused:    real rate already at/above refresh, generated frames would not
+-//              be visible; resume (via measuring) below 90% of refresh.
++//              be visible; resume (via native) below 90% of refresh. Also
++//              (Fix17) when generation lowered the displayed rate below the
++//              native one; retried later with growing delays.
++//
++// Fix17, Genshin Impact log 45 (RTX 2070 Max-Q, 144 Hz): native 120 FPS fell
++// to 12-35 real FPS while generating, and waits of up to 100 ms came from a
++// reference measured across loading hitches (2.8 FPS). Both measurements now
++// use the median interval and restart on any hitch, and a guard compares the
++// displayed rate with the native rate.
+ enum class Pacing { automatic, low_latency, smooth, vblank, off };
+ inline Pacing parse_pacing(const wchar_t* value) {
+  for(const auto* word:{L"off",L"0",L"false",L"no",L"immediate"})if(setting_equals(value,word))return Pacing::off;
+@@ -180,15 +190,38 @@
+ inline const char* pacing_name(Pacing p) {
+  return p==Pacing::off?"off":p==Pacing::low_latency?"low_latency":p==Pacing::smooth?"smooth":p==Pacing::vblank?"vblank":"auto";
+ }
+-enum class Presentation { measuring, timed, pipelined, vblank, immediate, paused };
++enum class Presentation { measuring, timed, pipelined, vblank, immediate, paused, native };
+ inline const char* presentation_name(Presentation p) {
+- constexpr const char* names[]={"measuring","timed","pipelined","vblank","immediate","paused"};
++ constexpr const char* names[]={"measuring","timed","pipelined","vblank","immediate","paused","native"};
+  return names[static_cast<int>(p)];
+ }
++// Median of frame intervals collected over a short measurement. Any interval
++// longer than hitch_seconds (loading, shader compilation, alt-tab) restarts
++// it: a mean across such a gap made Fix14 wait 100 ms per frame.
++struct IntervalSample {
++ static constexpr unsigned capacity=256;static constexpr double hitch_seconds=0.1;
++ std::array<double,capacity> values{};unsigned count{};double start{-1},last{-1};
++ void reset(){count=0;start=last=-1;}
++ // Returns the median interval once `seconds` and `frames` are reached, else 0.
++ double add(double now,double seconds,unsigned frames){
++  if(last>=0){
++   const double d=now-last;
++   if(!(d>=0)||d>hitch_seconds){count=0;start=now;}
++   else if(count<capacity)values[count++]=d;
++  }else start=now;
++  last=now;
++  if(count+1<frames||now-start<seconds)return 0;
++  std::array<double,capacity> sorted=values;
++  std::nth_element(sorted.begin(),sorted.begin()+count/2,sorted.begin()+count);
++  return sorted[count/2];
++ }
++};
+ struct PresentationPolicy {
+  Pacing pacing{Pacing::automatic};bool generateAboveRefresh{};double refreshHz{};
+- Presentation state{Presentation::measuring};
+- double measureStart{-1};unsigned measureFrames{};
++ Presentation state{Presentation::native};
++ IntervalSample sample;
++ // The game's own frame rate, measured without generation (0: unknown).
++ double nativeFps{};
+  // Real frame interval measured without spacing, in seconds.
+  double reference{};
+  // Current wait (seconds) and its smoothed fraction of half the reference
+@@ -197,23 +230,45 @@
+  double windowStart{-1},lastFrame{-1},longestFrame{};unsigned windowFrames{},windows{},fastWindows{},stalledWindows{},shortWindows{};
+  // Pacing=auto keeps the pipelined order once timed spacing proved too short.
+  bool learnedPipeline{};
++ // Cost guard (Fix17): half-second windows while generating compare the
++ // displayed rate with the native one. Losing windows in a row pause
++ // generation until pausedUntil; the retry delay doubles each time.
++ double guardStart{-1},guardLast{-1},guardLongest{},pausedUntil{},pausedNative{},retryDelay{retry_seconds};
++ unsigned guardFrames{},losingWindows{};bool counterproductive{};double lastDisplayed{};unsigned pauses{};
+  static constexpr double window_seconds=0.5,probe=0.00025,margin=0.0005,tolerance=0.01,timed_minimum=0.85,maximum_wait=0.1;
+- void reset(){state=Presentation::measuring;measureStart=-1;measureFrames=0;windowStart=-1;lastFrame=-1;}
++ static constexpr double native_seconds=0.5,measure_seconds=0.75,minimum_gain=1.1,retry_seconds=30,maximum_retry=300;
++ static constexpr unsigned native_frames=15,measure_frames=20,losing_limit=4;
++ void reset(){state=Presentation::native;sample.reset();windowStart=-1;lastFrame=-1;resetGuard();}
++ void resetGuard(){guardStart=guardLast=-1;guardLongest=0;guardFrames=losingWindows=0;}
+  double ideal() const {return std::min(maximum_wait,reference*0.5);}
+  void enter(Presentation next,double now){
+   state=next;wait=ideal();averageSpacing=1;windowStart=now;lastFrame=-1;longestFrame=0;windowFrames=windows=fastWindows=stalledWindows=shortWindows=0;
+  }
++ void pause(double now,bool losing){
++  state=Presentation::paused;counterproductive=losing;
++  if(losing){pausedUntil=now+retryDelay;pausedNative=nativeFps;retryDelay=std::min(maximum_retry,retryDelay*2);++pauses;sample.reset();}
++  else pausedUntil=0;
++ }
++ // Displayed frames per second: generation doubles the real rate, capped
++ // by the refresh (frames beyond it are never shown).
++ double displayed(double fps) const {return refreshHz>1?std::min(fps,refreshHz):fps;}
+  // Once per real frame; realFps is the running average of the real rate.
+  // spacingApplied: false for VSync pairs (no CPU wait to control).
+  Presentation update(double now,double realFps,bool spacingApplied=true){
+-  const bool visible=generateAboveRefresh||generation_useful(state!=Presentation::paused,realFps,refreshHz);
++  const bool generatingNow=state!=Presentation::paused&&state!=Presentation::native;
++  const bool visible=generateAboveRefresh||generation_useful(generatingNow,realFps,refreshHz);
+   switch(state){
++   case Presentation::native:
++    if(const double m=sample.add(now,native_seconds,native_frames);m>0){
++     nativeFps=1/m;sample.reset();
++     if(!generateAboveRefresh&&!generation_useful(false,nativeFps,refreshHz))pause(now,false);
++     else state=Presentation::measuring;
++    }
++    break;
+    case Presentation::measuring:
+-    if(measureStart<0){measureStart=now;measureFrames=0;}
+-    if(++measureFrames>=20&&now-measureStart>=0.75){
+-     reference=(now-measureStart)/(measureFrames-1);
+-     measureStart=-1;
+-     if(!visible)state=Presentation::paused;
++    if(const double m=sample.add(now,measure_seconds,measure_frames);m>0){
++     reference=m;sample.reset();resetGuard();
++     if(!visible)pause(now,false);
+      else if(pacing==Pacing::off)state=Presentation::immediate;
+      else if(pacing==Pacing::vblank)state=Presentation::vblank;
+      else enter(pacing==Pacing::smooth||(pacing==Pacing::automatic&&learnedPipeline)?Presentation::pipelined:Presentation::timed,now);
+@@ -221,23 +276,55 @@
+     break;
+    case Presentation::immediate:
+    case Presentation::vblank:
+-    if(!visible)state=Presentation::paused;
++    if(!visible){pause(now,false);break;}
++    guard(now);
+     break;
+    case Presentation::paused:
+-    if(visible)reset();
++    if(counterproductive){
++     // Retry later, or at once when the game became much slower by itself
++     // (a heavier scene may now benefit). The rate is measured afresh here:
++     // the running average still holds the slow generating rate.
++     if(now>=pausedUntil){counterproductive=false;reset();break;}
++     if(const double m=sample.add(now,native_seconds,native_frames);m>0){
++      sample.reset();
++      if(pausedNative>0&&1/m<pausedNative*0.6){counterproductive=false;reset();}
++     }
++    }else if(visible)reset();
+     break;
+    case Presentation::timed:
+    case Presentation::pipelined:
+-    if(!visible){state=Presentation::paused;break;}
++    if(!visible){pause(now,false);break;}
+     if(spacingApplied)control(now);else{windowStart=now;windowFrames=0;lastFrame=-1;longestFrame=0;}
++    if(state==Presentation::timed||state==Presentation::pipelined)guard(now);
+     break;
+   }
+   return state;
+  }
++ // Generation must raise the displayed rate by at least minimum_gain over
++ // the native rate; otherwise it only adds latency, GPU load and stutter.
++ // GenerateAboveRefresh=1 (explicit request, hardware tests) skips it.
++ void guard(double now){
++  if(generateAboveRefresh||!(nativeFps>0))return;
++  if(guardLast>=0&&now<guardLast)guardStart=guardLast=-1;
++  ++guardFrames;
++  if(guardLast>=0)guardLongest=std::max(guardLongest,now-guardLast);
++  guardLast=now;
++  if(guardStart<0){guardStart=now;guardFrames=0;guardLongest=0;return;}
++  const double elapsed=now-guardStart;
++  if(elapsed<window_seconds||!guardFrames)return;
++  const double interval=elapsed/guardFrames,longest=guardLongest;
++  guardStart=now;guardFrames=0;guardLongest=0;
++  if(longest>IntervalSample::hitch_seconds)return;
++  lastDisplayed=displayed(2/interval);
++  if(lastDisplayed<displayed(nativeFps)*minimum_gain){if(++losingWindows>=losing_limit)pause(now,true);}
++  else{losingWindows=0;retryDelay=retry_seconds;}
++ }
+  // Every half second compare the mean real interval with the reference. A
+  // wait beyond the game's slack delays every frame by exactly the excess,
+  // so the excess is removed in one step; otherwise probe upward slowly.
+  void control(double now){
++  // A clock step backwards restarts the window (never mixes two timelines).
++  if(lastFrame>=0&&now<lastFrame){windowStart=lastFrame=-1;}
+   ++windowFrames;
+   if(lastFrame>=0)longestFrame=std::max(longestFrame,now-lastFrame);
+   lastFrame=now;
+@@ -258,7 +345,9 @@
+   }else{
+    stalledWindows=0;wait=std::min(ideal(),wait+probe);
+    // Faster than the reference (limiter raised, lighter scene): follow it.
+-   if(interval<reference*0.93){if(++fastWindows>=3){reference=interval;wait=std::min(wait,ideal());fastWindows=0;}}else fastWindows=0;
++   // Much faster means the reference was wrong: follow at once.
++   if(interval<reference*0.7){reference=interval;wait=std::min(wait,ideal());fastWindows=0;}
++   else if(interval<reference*0.93){if(++fastWindows>=3){reference=interval;wait=std::min(wait,ideal());fastWindows=0;}}else fastWindows=0;
+   }
+   averageSpacing+=(spacing()-averageSpacing)*0.3;
+   // Only sustained short spacing selects the pipelined order.
+@@ -274,7 +363,7 @@
+   if((state!=Presentation::timed&&state!=Presentation::pipelined)||!(reference>0))return 0;
+   return std::min(maximum_wait,wait);
+  }
+- bool generating() const {return state!=Presentation::paused;}
++ bool generating() const {return state!=Presentation::paused&&state!=Presentation::native;}
+  bool spaced() const {return state==Presentation::timed||state==Presentation::pipelined;}
+  bool pipelined() const {return state==Presentation::pipelined;}
+  bool paced() const {return state==Presentation::vblank;}
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/rtx20/policy_test.cpp Fix17/source/rtx20/policy_test.cpp
+--- Fix16/source/rtx20/policy_test.cpp	2026-09-27 20:44:02.000000000 +0000
++++ Fix17/source/rtx20/policy_test.cpp	2026-09-27 21:11:03.415417681 +0000
+@@ -232,7 +232,8 @@
+     policy.update(entry,interval>0?1/interval:0);
+     const double wait=policy.wait_seconds();
+     double inside=g.tail;
+-    if(policy.state==Presentation::pipelined)inside+=std::max(wait,0.0005);
++    if(!policy.generating())inside+=0.0005; // native measurement or paused
++    else if(policy.state==Presentation::pipelined)inside+=std::max(wait,0.0005);
+     else inside+=g.generation+wait+0.0005;
+     returned=entry+inside;t=returned;
+     if(t>seconds-2){if(startCount<0)startCount=entry;++frames;}
+@@ -254,6 +255,56 @@
+    // Re-measuring (F11, resize) returns straight to the learned order.
+    re3.reset();r=run(re3,game,3.0);assert(r.state==Presentation::pipelined);
+   }
++  // Fix17, Genshin Impact log 45 (RTX 2070 Max-Q, 144 Hz): native about
++  // 118 FPS, but a pair costs about 20 ms of GPU time, so generating drops
++  // the real rate to ~30 (60 displayed < 118 native). The guard pauses after
++  // 2 s and keeps the native rate; retries back off (30 s, then 60 s).
++  {
++   PresentationPolicy genshin;genshin.refreshHz=144;
++   const Game game{0.004,0.004,0.020,0};
++   auto r=run(genshin,game,25.0);
++   assert(r.state==Presentation::paused&&genshin.counterproductive&&genshin.pauses==1);
++   assert(genshin.nativeFps>110&&r.fps>110); // native rate restored
++   r=run(genshin,game,60.0,25.0);            // one retry at ~33 s, paused again
++   assert(r.state==Presentation::paused&&genshin.pauses==2&&r.fps>110);
++   assert(genshin.pausedUntil>genshin.retry_seconds*2); // next retry 60 s later
++   // A much heavier scene (native well below the rate at the pause) retries
++   // at once, after half a second of measuring it.
++   double t=61.0;Presentation state=genshin.state;
++   for(int i=0;i<40&&state==Presentation::paused;++i){state=genshin.update(t,50);t+=0.02;}
++   assert(state==Presentation::native&&t<62.0);
++  }
++  // A capped 30 FPS game gains (60 displayed vs 30 native): never paused.
++  {
++   PresentationPolicy capped;capped.refreshHz=144;
++   const auto r=run(capped,{0.005,0.0065,0.0085,1/30.0},20.0);
++   assert(capped.pauses==0&&r.state!=Presentation::paused&&std::abs(r.fps-30)<0.6);
++  }
++  // A 2-second loading hitch during measuring restarts the measurement:
++  // Fix14 averaged across it (reference 2.8 FPS) and waited 100 ms per frame.
++  {
++   PresentationPolicy load;load.refreshHz=60;double t=0;
++   for(int i=0;i<20;++i){load.update(t,30);t+=1/30.0;}
++   assert(load.state==Presentation::measuring);
++   for(int i=0;i<5;++i){load.update(t,30);t+=1/30.0;}
++   t+=2.0;                                     // hitch
++   for(int i=0;i<40;++i){load.update(t,30);t+=1/30.0;}
++   assert(load.state==Presentation::timed&&std::abs(load.reference-1/30.0)<1e-3&&load.wait_seconds()<0.02);
++  }
++  // The same hitch in the native measurement: native stays the real rate.
++  {
++   PresentationPolicy load;load.refreshHz=144;double t=0;
++   for(int i=0;i<5;++i){load.update(t,60);t+=1/60.0;}
++   t+=1.5;
++   for(int i=0;i<40;++i){load.update(t,60);t+=1/60.0;}
++   assert(std::abs(load.nativeFps-60)<0.5);
++  }
++  // Median intervals ignore single slow frames.
++  {
++   IntervalSample m;double t=0,r=0;
++   for(int i=0;i<30&&!(r>0);++i){r=m.add(t,0.2,10);t+=(i%7==3)?0.05:0.01;}
++   assert(std::abs(r-0.01)<1e-9);
++  }
+   // Light game capped at 30: timed spacing fits, lowest latency is kept.
+   {
+    PresentationPolicy light;light.refreshHz=60;
+@@ -277,46 +328,50 @@
+   // Pacing=smooth pipelines at once; Pacing=vblank keeps the Fix13 pairs.
+   {
+    PresentationPolicy smooth;smooth.pacing=Pacing::smooth;smooth.refreshHz=60;
+-   double t=0;for(int i=0;i<30;++i){smooth.update(t,30);t+=1/30.0;}
++   double t=0;for(int i=0;i<60;++i){smooth.update(t,30);t+=1/30.0;}
+    assert(smooth.state==Presentation::pipelined&&smooth.pipelined()&&smooth.spaced()&&std::abs(smooth.wait_seconds()-1/60.0)<1e-3);
+    PresentationPolicy vblank;vblank.pacing=Pacing::vblank;vblank.refreshHz=60;t=0;
+-   for(int i=0;i<30;++i){vblank.update(t,30);t+=1/30.0;}
++   for(int i=0;i<60;++i){vblank.update(t,30);t+=1/30.0;}
+    assert(vblank.state==Presentation::vblank&&vblank.paced()&&!vblank.spaced()&&vblank.wait_seconds()==0);
+   }
+-  // Measuring: 30 FPS on 60 Hz needs 0.75 s; unspaced until then.
++  // Fix17: first ~0.5 s without generation (native rate), then measuring:
++  // 30 FPS on 60 Hz needs 0.75 s unspaced; then timed.
+   PresentationPolicy witcher;witcher.refreshHz=60;
+-  double t=0;
++  double t=0;int frame=0;
++  for(;frame<16;++frame){assert(witcher.update(t,30)==Presentation::native&&!witcher.generating()&&witcher.wait_seconds()==0);t+=1/30.0;}
++  assert(witcher.update(t,30)==Presentation::measuring&&std::abs(witcher.nativeFps-30)<0.01);t+=1/30.0;
+   for(int i=0;i<23;++i){assert(witcher.update(t,30)==Presentation::measuring&&witcher.generating()&&witcher.wait_seconds()==0);t+=1/30.0;}
+-  assert(t>=0.75&&witcher.update(t,30)==Presentation::timed&&std::abs(witcher.reference-1/30.0)<1e-3);
+-  witcher.reset();assert(witcher.state==Presentation::measuring);
+-  // Blackwood-like: 100 real FPS while generating on 92 Hz -> paused; native
+-  // 118 stays paused; a heavy scene at 80 resumes measuring.
++  assert(witcher.update(t,30)==Presentation::timed&&std::abs(witcher.reference-1/30.0)<1e-3);
++  witcher.reset();assert(witcher.state==Presentation::native);
++  // Blackwood-like: native 100 FPS on 92 Hz -> paused (not counterproductive,
++  // a refresh pause); native 118 stays paused; a heavy scene at 80 resumes
++  // (native measurement again).
+   PresentationPolicy blackwood;blackwood.refreshHz=92;t=0;
+   for(int i=0;i<80;++i){blackwood.update(t,100);t+=0.01;}
+-  assert(blackwood.state==Presentation::paused&&!blackwood.generating());
++  assert(blackwood.state==Presentation::paused&&!blackwood.generating()&&!blackwood.counterproductive);
+   assert(blackwood.update(t,118)==Presentation::paused);
+   assert(blackwood.update(t,85)==Presentation::paused);
+-  assert(blackwood.update(t,80)==Presentation::measuring);
++  assert(blackwood.update(t,80)==Presentation::native);
+   // A spaced state also pauses once the real rate exceeds the refresh.
+   PresentationPolicy rising;rising.refreshHz=60;t=0;
+-  for(int i=0;i<30;++i){rising.update(t,30);t+=1/30.0;}
++  for(int i=0;i<60;++i){rising.update(t,30);t+=1/30.0;}
+   assert(rising.state==Presentation::timed&&rising.update(t,70)==Presentation::paused);
+   // Pacing=off: measuring -> immediate; immediate pauses above refresh.
+   PresentationPolicy uncapped;uncapped.pacing=Pacing::off;uncapped.refreshHz=144;t=0;
+-  for(int i=0;i<80;++i){uncapped.update(t,70);t+=1/70.0;}
++  for(int i=0;i<160;++i){uncapped.update(t,70);t+=1/70.0;}
+   assert(uncapped.state==Presentation::immediate&&uncapped.generating()&&!uncapped.spaced());
+   assert(uncapped.update(t,150)==Presentation::paused);
+   // GenerateAboveRefresh=1 never pauses; unknown refresh never pauses.
+   PresentationPolicy forced;forced.generateAboveRefresh=true;forced.refreshHz=60;t=0;
+-  for(int i=0;i<200;++i){forced.update(t,200);t+=0.005;}
++  for(int i=0;i<400;++i){forced.update(t,200);t+=0.005;}
+   assert(forced.state==Presentation::timed);
+   PresentationPolicy unknown;t=0;
+-  for(int i=0;i<200;++i){unknown.update(t,200);t+=0.005;}
++  for(int i=0;i<400;++i){unknown.update(t,200);t+=0.005;}
+   assert(unknown.state==Presentation::timed);
+   // Too few frames or too little time: still measuring.
+   PresentationPolicy brief;brief.refreshHz=60;
+   for(int i=0;i<100;++i)brief.update(i*0.001,30);
+-  assert(brief.state==Presentation::measuring);
++  assert(brief.state==Presentation::native);
+   // One 100 ms hitch (loading) neither cuts the spacing nor selects the
+   // pipelined order.
+   {
+@@ -332,8 +387,9 @@
+   // VSync pairs apply no CPU wait: the controller does not run (a halved
+   // rate against the unpaired reference must not teach the pipelined order).
+   {
++   // (Fix17: native 40 FPS with VSync on 60 Hz; pairs run at 30 real.)
+    PresentationPolicy vsync;vsync.refreshHz=60;double t=0;
+-   for(int i=0;i<30;++i){vsync.update(t,60,false);t+=1/60.0;}
++   for(int i=0;i<24;++i){vsync.update(t,40,false);t+=1/40.0;}
+    for(int i=0;i<600;++i){vsync.update(t,30,false);t+=1/30.0;}
+    assert(vsync.state==Presentation::timed&&!vsync.learnedPipeline&&vsync.spacing()>0.99);
+   }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/rtx20/verify.py Fix17/source/rtx20/verify.py
+--- Fix16/source/rtx20/verify.py	2026-09-27 20:44:20.000000000 +0000
++++ Fix17/source/rtx20/verify.py	2026-09-27 21:11:03.414692653 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix16-test'
++assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix17-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -44,6 +44,7 @@
+ assert (root/'FIX14_NOTES.md').is_file()
+ assert (root/'FIX15_NOTES.md').is_file()
+ assert (root/'FIX16_NOTES.md').is_file()
++assert (root/'FIX17_NOTES.md').is_file()
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+@@ -76,7 +77,7 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.4-rtx20-dx12-preview2-fix16-test' in pe.data
++ assert b'2.8.4-rtx20-dx12-preview2-fix17-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+@@ -84,6 +85,7 @@
+  assert b'artifact_guard=occlusion_aware_v6' in pe.data
+  assert b'GPU budget:' in pe.data and b'pair_gpu_us' in pe.data and b'ExclusiveFullscreen' in pe.data.replace(b'\x00',b'')
+  assert b'10-bit SDR backbuffer (R10G10B10A2)' in pe.data
++ assert b'guard: generation paused' in pe.data and b'native rate: %.1f FPS' in pe.data and b'guard_pauses' in pe.data
+  assert b'Multisampled DX11 backbuffer' in pe.data and b'Sync interval %u' in pe.data
+  assert b'performance_gpu_us' in pe.data and b'flow_pairs_half' in pe.data
+  assert b'flow_resolution' in pe.data and 'nvsmooth30.ini'.encode('utf-16-le') in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix16/source/setup/payload_hashes.hpp Fix17/source/setup/payload_hashes.hpp
+--- Fix16/source/setup/payload_hashes.hpp	2026-09-27 20:45:54.000000000 +0000
++++ Fix17/source/setup/payload_hashes.hpp	2026-09-27 21:11:03.416486462 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "3823d8dc52d2a04d31b61b0945a450edc19c384a2bf9e56bd6b999e880aca85d";
+-inline constexpr const char motion[] = "68236391f5d09ad566d941178bee8aa944370ac3685982ffce436cf3dc619583";
++inline constexpr const char native_proxy[] = "967382bf5b325f8e9f2a7dd7f389e68454d57877bc05d250bf96ef40c0ef9af4";
++inline constexpr const char motion[] = "3e18aaaa4114d1378d219b93e7843f722191d48f970b20fc8b5ebca6f9e3d893";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";

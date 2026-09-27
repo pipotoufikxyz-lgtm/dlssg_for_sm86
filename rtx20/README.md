@@ -1,6 +1,19 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 16 — 10-bit SDR games (current)
+## Fix 17 — performance guard and stutter fix (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix17-Test.zip`: everything in Fix16,
+plus a guard that never lets generation lower the displayed frame rate.
+`nvsmooth30_45.log` (Genshin Impact, RTX 2070 Max-Q) showed native ~120 FPS
+falling to 12–35 while generating, and 100 ms waits from a reference measured
+across loading hitches. The native rate is now measured first, generation
+pauses when it loses (retrying with growing delays), and measurements use
+hitch-proof medians.
+
+- `FIX17_NOTES.md`: log analysis, changes, policy-model results, limits.
+- `DX12-Preview2-Fix17.patch`: source and document difference from Fix16.
+
+## Fix 16 — 10-bit SDR games (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix16-Test.zip`: everything in Fix15,
 plus RGB10A2 backbuffers. God of War (2018) uses one in SDR; Fix15 and
