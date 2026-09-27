@@ -1,6 +1,19 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 19 — steady crosshairs and HUD (current)
+## Fix 20 — GPU-bound games (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix20-Test.zip`: everything in
+Fix19. `nvsmooth30_46.log` (God of War, RTX 2060, uncapped 70 FPS) showed the
+real rate halving to 35-45 while generating: the DX11 wait for the generated
+frame's visibility drained the GPU every frame. That wait is now skipped
+while GPU-bound, and generation pauses below 65% of the native rate
+(`MinimumBaseRate`).
+
+- `FIX20_NOTES.md`: log analysis, changes, what to expect, capping advice.
+- `nvsmooth30.example.ini`: adds `MinimumBaseRate`.
+- `DX12-Preview2-Fix20.patch`: source and document difference from Fix19.
+
+## Fix 19 — steady crosshairs and HUD (previous)
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix19-Test.zip`: everything in
 Fix18, plus a full-frame static overlay mask (opaque and translucent HUD
