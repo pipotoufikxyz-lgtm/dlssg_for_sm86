@@ -1,6 +1,18 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 21 — image quality: less ghosting (current)
+## Fix 22 — no freezes on swapchain resizes (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix22-Test.zip`: everything in
+Fix21. `nvsmooth30_48.log` (God of War, RTX 2060) showed 20 session rebuilds.
+Each recompiled the shaders on the game thread for 6–8 s (freezes). Each also
+forgot the guard's pause, so generation restarted and the FPS tanked again.
+Shaders are now compiled once on a worker thread, and the guard's pause and
+backoff survive rebuilds.
+
+- `FIX22_NOTES.md`: log analysis, changes, what to expect on an RTX 2060.
+- `DX12-Preview2-Fix22.patch`: source and document difference from Fix21.
+
+## Fix 21 — image quality: less ghosting (previous)
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix21-Test.zip`: everything in
 Fix20, with better generated frames on RTX 30 and RTX 20 (same synthesis).
