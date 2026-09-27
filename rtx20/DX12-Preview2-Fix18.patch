@@ -1,0 +1,372 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/BUILD.md Fix18/BUILD.md
+--- Fix17/BUILD.md	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/BUILD.md	2026-09-27 21:28:14.442916071 +0000
+@@ -1,4 +1,4 @@
+-# Rebuild the RTX20 preview (DX12 Preview 2 Fix 17 Test)
++# Rebuild the RTX20 preview (DX12 Preview 2 Fix 18 RTX 20/30 Test)
+ 
+ Use Python 3, Zig **0.14.1** or LLVM-MinGW, glslangValidator, and g++ for host tests.
+ No NVIDIA SDK download, CUDA toolkit, Windows SDK installation or driver binary
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix17-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix18-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,7 +42,7 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix17
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix18
+ were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/CHANGELOG_RTX20.md Fix18/CHANGELOG_RTX20.md
+--- Fix17/CHANGELOG_RTX20.md	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/CHANGELOG_RTX20.md	2026-09-27 21:28:14.442929523 +0000
+@@ -1,3 +1,9 @@
++# Fix18 RTX 20/30 test
++
++See FIX18_NOTES.md. Ampere SM86 (RTX 30) accepted by the same NVOF +
++synthesis backend; the Manager replaces owned GP9 (RTX 30 driver-model)
++installations and exact Fix17 installations.
++
+ # Fix17 performance guard test
+ 
+ See FIX17_NOTES.md. Native-rate measurement without generation, a guard that
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/FIX18_NOTES.md Fix18/FIX18_NOTES.md
+--- Fix17/FIX18_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix18/FIX18_NOTES.md	2026-09-27 21:28:14.447071393 +0000
+@@ -0,0 +1,51 @@
++# Fix 18 — RTX 30 (Ampere) support
++
++Runtime version: `2.8.4-rtx20-rtx30-dx12-preview2-fix18-test`.
++
++This package's own frame generation now runs on RTX 30 cards (Ampere SM86:
++RTX 3050–3090, laptop variants included) as well as RTX 20. It uses NVIDIA's
++optical-flow hardware plus our synthesis shader, the same code that received
++every fix so far:
++
++- **Fix14:** frames spaced for real 60 from a 30 FPS base.
++- **Fix15:** no roofline slivers, the GPU budget, a cheaper flat-area path,
++  30 FPS locks, exclusive fullscreen and MSAA.
++- **Fix16:** 10-bit SDR games.
++- **Fix17:** the performance guard and hitch-proof pacing.
++
++Nothing else changed. This is a test build: no RTX 30 card has run it yet.
++
++## How this differs from GP9 (2.8.2 R3 GP9 Fixes1)
++
++GP9 has no frame-generation code of its own. It loads NVIDIA's closed Smooth
++Motion model from the driver and patches it to run on RTX 30. Its ghosting and
++quality come from NVIDIA's model and cannot be changed in that package. Fix18
++uses code that can be improved from user logs and recordings.
++
++## Install
++
++1. Close the game.
++2. Use the Manager from this ZIP on the same game EXE. It recognizes and
++   replaces an owned GP9 installation (both routes) and exact Fix14–17
++   installations. Manual kits: remove GP9's `version.dll` or `new.asi`
++   first. Never keep both packages in one game folder.
++3. The log must show `Ampere backend ready: adapter=NVIDIA GeForce RTX 30..
++   SM86`.
++4. Use DX11 or DX12, SDR, windowed, borderless or fullscreen. F11 toggles.
++
++## What to expect on RTX 30
++
++- **Optical flow.** Ampere's optical-flow engine is faster than Turing's. The
++  GPU budget (`GpuBudget`, default 10% of the frame time) will therefore
++  allow the best-quality SLOW preset more often. The `flow=` log lines show
++  the measured cost per mode.
++- **Performance guard.** If generation would lower the displayed frame rate
++  (for example on a laptop already near its refresh rate), it pauses by
++  itself. Look for the `guard:` log line.
++- **Unsupported.** Vulkan, OpenGL, HDR/FP16, and RTX 40/50 cards: those have
++  NVIDIA's own frame generation.
++
++## If quality looks worse than GP9 in some scene
++
++Send a short recording (F11 on, 30 to 60) and `nvsmooth30.log`. Per-scene
++fixes (like the Witcher 3 roofline in Fix15) come from exactly that.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/MANUAL_INSTALL.md Fix18/MANUAL_INSTALL.md
+--- Fix17/MANUAL_INSTALL.md	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/MANUAL_INSTALL.md	2026-09-27 21:28:14.443926624 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix17-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix18-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/Manual/README.md Fix18/Manual/README.md
+--- Fix17/Manual/README.md	2026-09-27 21:06:28.000000000 +0000
++++ Fix18/Manual/README.md	2026-09-27 21:28:14.443979501 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix17-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix18-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/README.md Fix18/README.md
+--- Fix17/README.md	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/README.md	2026-09-27 21:28:14.453016899 +0000
+@@ -1,4 +1,10 @@
+-# SmoothMotion 2.8.4 RTX20 Fix 17 — performance guard and stutter fix
++# SmoothMotion 2.8.4 RTX20/RTX30 Fix 18 — RTX 30 support
++
++Fix18 runs this package's own frame generation (NVIDIA optical-flow hardware
++plus our synthesis: every quality, pacing and performance fix up to Fix17) on
++RTX 30 (Ampere SM86) cards as well as RTX 20. It replaces the GP9 approach
++for RTX 30, which ran NVIDIA's closed Smooth Motion model through driver
++patches. See `FIX18_NOTES.md`.
+ 
+ Fix17 never lets frame generation lower the displayed frame rate: it
+ measures the game's own rate first and pauses generation when generating
+@@ -38,7 +44,7 @@
+ 3. Use DirectX 11 or DirectX 12 (windowed, borderless or exclusive fullscreen), SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.4-rtx20-dx12-preview2-fix17-test`,
++4. Confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix18-test`,
+    `artifact_guard=occlusion_aware_v6`, a `GPU budget:`, a `presentation=` and a `spacing:` line in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+@@ -53,7 +59,7 @@
+ 
+ | Item | Scope |
+ |---|---|
+-| GPU | NVIDIA Turing SM75 on the game's adapter; RTX 2060/2070/2080 families |
++| GPU | NVIDIA Turing SM75 (RTX 2060/2070/2080) or, since Fix18, Ampere SM86 (RTX 3050–3090) on the game's adapter |
+ | OS/API | Windows 10/11 x64; DirectX 11 or DirectX 12 |
+ | Optical flow | DX11 and DX12 bridge: D3D11 NVOF API5 preferred, CUDA2 initialization fallback |
+ | Display | Windowed, borderless or exclusive fullscreen SDR, RGBA8/BGRA8 or RGB10A2; DX11 also multisampled backbuffers |
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/VALIDATION.md Fix18/VALIDATION.md
+--- Fix17/VALIDATION.md	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/VALIDATION.md	2026-09-27 21:28:14.465232899 +0000
+@@ -1,6 +1,7 @@
+-# Fix17 validation and limits
++# Fix18 validation and limits
+ 
+-All results below refer to the current Fix17 sources. Fix17 changes the presentation
++All results below refer to the current Fix18 sources. Fix18 only widens the GPU check
++to Ampere SM86 (policy test updated); no RTX 30 card has run it. Fix17 changes the presentation
+ policy only (policy tests: Genshin-like laptop model, loading hitches, capped games); shaders are unchanged. Fix16 adds RGB10A2 backbuffers
+ (policy tests updated); shaders and their results are unchanged from Fix15. Reports contain source and
+ binary hashes; the package verifier rejects stale reports and carriers.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/build_release.py Fix18/source/build_release.py
+--- Fix17/source/build_release.py	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/source/build_release.py	2026-09-27 21:28:14.473717451 +0000
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build and verify the complete RTX20 DX12 Preview 2 Fix 17 Test release."""
++"""Build and verify the complete RTX20 DX12 Preview 2 Fix 18 RTX 20/30 Test release."""
+ import argparse,pathlib,subprocess,sys,shutil
+ import build_toolchain
+ r=pathlib.Path(__file__).resolve().parents[1]
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/manager/helper_identity.hpp Fix18/source/manager/helper_identity.hpp
+--- Fix17/source/manager/helper_identity.hpp	2026-09-27 21:06:06.000000000 +0000
++++ Fix18/source/manager/helper_identity.hpp	2026-09-27 21:28:14.476038107 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="c8685da2eb607a8fdc7a881c5130b4d207c65adc5db3b4e51d79ed8497694017";
+-inline constexpr char collector[]="98c4faf9cb4c42dc83b8f6a3ffd0032ee031b808a27d6ab6f959ae89ea7606b7";
++inline constexpr char installer[]="a777805e9adbf5dbdeff289ab759853ecdce3ba5cf00cab68557f010dc83f7aa";
++inline constexpr char collector[]="720735ecae361feb284cb6cadb8dd5ebd6784428f46f10cec7536ec7ae3bf408";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/manager/manager.cpp Fix18/source/manager/manager.cpp
+--- Fix17/source/manager/manager.cpp	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/source/manager/manager.cpp	2026-09-27 21:28:14.476064581 +0000
+@@ -444,7 +444,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- label(L"Fix 17 \u00b7 RTX 20 Turing",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.4 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
++ label(L"Fix 18 \u00b7 RTX 20 / 30",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.4 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -473,7 +473,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix17-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-rtx30-dx12-preview2-fix18-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/motion/identity.hpp Fix18/source/motion/identity.hpp
+--- Fix17/source/motion/identity.hpp	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/source/motion/identity.hpp	2026-09-27 21:28:14.476618648 +0000
+@@ -113,8 +113,11 @@
+ // Exact released Fix16 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix16Native="68236391f5d09ad566d941178bee8aa944370ac3685982ffce436cf3dc619583";
+ inline constexpr const char* releaseRTX20Preview2Fix16NativeProxy="3823d8dc52d2a04d31b61b0945a450edc19c384a2bf9e56bd6b999e880aca85d";
+-inline constexpr std::array<const char*,36> previousNativeProxies{{releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,46> previousPlugins{{releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++// Exact released Fix17 bytes retained for managed upgrades.
++inline constexpr const char* releaseRTX20Preview2Fix17Native="3e18aaaa4114d1378d219b93e7843f722191d48f970b20fc8b5ebca6f9e3d893";
++inline constexpr const char* releaseRTX20Preview2Fix17NativeProxy="967382bf5b325f8e9f2a7dd7f389e68454d57877bc05d250bf96ef40c0ef9af4";
++inline constexpr std::array<const char*,37> previousNativeProxies{{releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,47> previousPlugins{{releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/package_release.py Fix18/source/package_release.py
+--- Fix17/source/package_release.py	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/source/package_release.py	2026-09-27 21:28:14.476697163 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix17-Test'
++archive_root='SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix18-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/rtx20/build.py Fix18/source/rtx20/build.py
+--- Fix17/source/rtx20/build.py	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/source/rtx20/build.py	2026-09-27 21:28:14.478927645 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix17-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-rtx30-dx12-preview2-fix18-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.4-rtx20-dx12-preview2-fix17-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.4-rtx20-rtx30-dx12-preview2-fix18-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/rtx20/dxgi_hooks.cpp Fix18/source/rtx20/dxgi_hooks.cpp
+--- Fix17/source/rtx20/dxgi_hooks.cpp	2026-09-27 20:20:36.000000000 +0000
++++ Fix18/source/rtx20/dxgi_hooks.cpp	2026-09-27 21:28:14.479311098 +0000
+@@ -597,7 +597,7 @@
+  }
+  int n=std::snprintf(out,out?size:0,
+   "{\"schema\":17,\"version\":\"" NVS30_VERSION "\",\"initialization_status\":\"%s\","
+-  "\"backend\":\"Turing NVOF + custom synthesis\",\"mode\":\"rtx20_preview\",\"runtime_loaded\":%s,"
++  "\"backend\":\"Turing/Ampere NVOF + custom synthesis\",\"mode\":\"rtx20_preview\",\"runtime_loaded\":%s,"
+   "\"import_patches\":%lu,\"module_scans\":%llu,\"loader_notifications\":%llu,\"loader_notifications_active\":%s,"
+   "\"graphics_provider_count\":%zu,\"provider_import_patches\":%lu,\"provider_resolutions\":%lu,"
+   "\"loader_provider_count\":%zu,\"loader_alias_import_patches\":%lu,\"loader_alias_resolutions\":%lu,"
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/rtx20/interpolator.cpp Fix18/source/rtx20/interpolator.cpp
+--- Fix17/source/rtx20/interpolator.cpp	2026-09-27 21:04:14.000000000 +0000
++++ Fix18/source/rtx20/interpolator.cpp	2026-09-27 21:28:14.479149930 +0000
+@@ -223,7 +223,7 @@
+   if(ad.VendorId!=0x10de)throw std::runtime_error("selected game adapter is not NVIDIA");
+   CUdevice gpu{};cu(cuda.d3dDevice(&gpu,adapter.Get()),"cuD3D11GetDevice");int major{},minor{};
+   cu(cuda.attribute(&major,75,gpu),"compute major");cu(cuda.attribute(&minor,76,gpu),"compute minor");
+-  if(!supported_gpu(ad.VendorId,major,minor))throw std::runtime_error("RTX20 preview requires Turing SM75");
++  if(!supported_gpu(ad.VendorId,major,minor))throw std::runtime_error("requires Turing SM75 (RTX 20) or Ampere SM86 (RTX 30)");
+   D3D_FEATURE_LEVEL levels[]={D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0},selected{};
+   require(device1->CreateDeviceContextState((device->GetCreationFlags()&D3D11_CREATE_DEVICE_SINGLETHREADED)?D3D11_1_CREATE_DEVICE_CONTEXT_STATE_SINGLETHREADED:0,levels,2,D3D11_SDK_VERSION,__uuidof(ID3D11Device),&selected,&pipeline),"CreateDeviceContextState");
+   // NVIDIA's D3D11 ABGR8 buffer maps to BGRA8; CUDA2 still requires the
+@@ -360,7 +360,7 @@
+   }
+   logf("[rtx20] flow_resolution setting=%s; half-resolution flow %s%s.\n",flow_setting_name(flowSetting),halfFlow?"ready ":"unavailable",
+        halfFlow?(std::to_string(halfWidth)+"x"+std::to_string(halfHeight)+" (8-pixel cells), automatic above "+std::to_string(int(half_flow_enter_fps))+" real FPS").c_str():"");
+-  logf("[rtx20] Turing backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v6 (flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
++  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v6 (flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
+  }
+  bool quiesce(){
+   if(cudaFault)return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/rtx20/policy.hpp Fix18/source/rtx20/policy.hpp
+--- Fix17/source/rtx20/policy.hpp	2026-09-27 21:03:52.000000000 +0000
++++ Fix18/source/rtx20/policy.hpp	2026-09-27 21:28:14.479271730 +0000
+@@ -25,7 +25,10 @@
+  const unsigned generated=n/2<1?1:n/2;
+  return {generated,n-generated<1?1:n-generated};
+ }
+-inline bool supported_gpu(unsigned vendor,int major,int minor) { return vendor==0x10de && major==7 && minor==5; }
++// Turing SM75 (RTX 20) and, since Fix18, Ampere SM86 (RTX 30). Both have the
++// D3D11 NVOF API5 engine (grid 4, MEDIUM/SLOW presets) used here; synthesis is
++// plain D3D11 shader code. Other architectures are not accepted.
++inline bool supported_gpu(unsigned vendor,int major,int minor) { return vendor==0x10de && ((major==7 && minor==5)||(major==8 && minor==6)); }
+ // RGBA8/BGRA8 UNORM and sRGB; RGB10A2 UNORM (24, Fix16: God of War 2018 uses
+ // it for SDR). All are 4 bytes per pixel. FP16/HDR formats are unsupported.
+ inline bool supported_format(unsigned f) { return f==24 || f==28 || f==29 || f==87 || f==91; }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/rtx20/policy_test.cpp Fix18/source/rtx20/policy_test.cpp
+--- Fix17/source/rtx20/policy_test.cpp	2026-09-27 21:04:14.000000000 +0000
++++ Fix18/source/rtx20/policy_test.cpp	2026-09-27 21:28:14.479430791 +0000
+@@ -8,7 +8,8 @@
+ #include <vector>
+ int main(){
+  using namespace sm20;
+- assert(supported_gpu(0x10de,7,5));assert(!supported_gpu(0x1002,7,5));assert(!supported_gpu(0x10de,8,6));assert(!supported_gpu(0x10de,7,0));
++ assert(supported_gpu(0x10de,7,5));assert(!supported_gpu(0x1002,7,5));assert(supported_gpu(0x10de,8,6));assert(!supported_gpu(0x1002,8,6));
++ assert(!supported_gpu(0x10de,7,0));assert(!supported_gpu(0x10de,8,0));assert(!supported_gpu(0x10de,8,9));assert(!supported_gpu(0x10de,6,1));
+  for(unsigned f=0;f<200;++f)assert(supported_format(f)==(f==24||f==28||f==29||f==87||f==91));
+  for(unsigned sync=0;sync<7;++sync)for(unsigned flags=0;flags<2048;++flags)for(bool partial:{false,true})
+  for(bool windowed:{false,true})for(unsigned swapFlags:{0u,0x42u,0x800u,0x842u}){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/rtx20/verify.py Fix18/source/rtx20/verify.py
+--- Fix17/source/rtx20/verify.py	2026-09-27 21:04:36.000000000 +0000
++++ Fix18/source/rtx20/verify.py	2026-09-27 21:28:14.479069921 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix17-test'
++assert runtime['version']=='2.8.4-rtx20-rtx30-dx12-preview2-fix18-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -45,6 +45,7 @@
+ assert (root/'FIX15_NOTES.md').is_file()
+ assert (root/'FIX16_NOTES.md').is_file()
+ assert (root/'FIX17_NOTES.md').is_file()
++assert (root/'FIX18_NOTES.md').is_file()
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+@@ -77,7 +78,7 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.4-rtx20-dx12-preview2-fix17-test' in pe.data
++ assert b'2.8.4-rtx20-rtx30-dx12-preview2-fix18-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/setup/payload_hashes.hpp Fix18/source/setup/payload_hashes.hpp
+--- Fix17/source/setup/payload_hashes.hpp	2026-09-27 21:05:54.000000000 +0000
++++ Fix18/source/setup/payload_hashes.hpp	2026-09-27 21:28:14.480074488 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "967382bf5b325f8e9f2a7dd7f389e68454d57877bc05d250bf96ef40c0ef9af4";
+-inline constexpr const char motion[] = "3e18aaaa4114d1378d219b93e7843f722191d48f970b20fc8b5ebca6f9e3d893";
++inline constexpr const char native_proxy[] = "0c3d60c3fde1dab7b3c43c1e4f0611a60aa093ae77b7b118d457b9991975a7ce";
++inline constexpr const char motion[] = "3fad291db8a552ef8706fa63d35c13bd018306726f282cd7bb535beb0c4da268";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' Fix17/source/setup/simple_install.hpp Fix18/source/setup/simple_install.hpp
+--- Fix17/source/setup/simple_install.hpp	2026-09-27 20:01:14.000000000 +0000
++++ Fix18/source/setup/simple_install.hpp	2026-09-27 21:28:14.480150525 +0000
+@@ -55,7 +55,7 @@
+             appendChange(changes,root,normal_motion::oldConfigPath,L"",configDigest,"-");
+     }
+     prepareUninstaller(root,exe,proxy,asi,self,changes);
+-    std::string warning="RTX20 preview: Turing NVOF with custom synthesis, DirectX 11 or DirectX 12 SDR windowed/borderless. Generated Presents use interval 0 and DO_NOT_WAIT. Game/driver VSync still applies. No runtime FPS cap. Display cadence remains unverified. F11 toggles interpolation. Check nvsmooth30.log for flow and Present counters. API success is not proof of displayed frames. GPU/game testing is outstanding.";
++    std::string warning="RTX20/RTX30 preview: Turing/Ampere NVOF with custom synthesis, DirectX 11 or DirectX 12 SDR windowed/borderless. Generated Presents use interval 0 and DO_NOT_WAIT. Game/driver VSync still applies. No runtime FPS cap. Display cadence remains unverified. F11 toggles interpolation. Check nvsmooth30.log for flow and Present counters. API success is not proof of displayed frames. GPU/game testing is outstanding.";
+     if(target.metadataOnly)warning+=" Windows denies reading the EXE. Its x64 PC architecture comes from MicrosoftGame.config; graphics API and carrier imports could not be inspected. Launch through the Xbox app after installation.";
+     if(!apis)warning+=" The graphics API is loaded dynamically or could not be identified; the runtime will report supported or pass-through status.";
+     if(plan.fallback)warning+=" No import evidence confirms the selected carrier. Try an imported alternative such as dinput8.dll or winmm.dll if no runtime log appears.";

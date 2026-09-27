@@ -1,6 +1,16 @@
-# SmoothMotion RTX20 builds (Turing / RTX 20-series)
+# SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 17 — performance guard and stutter fix (current)
+## Fix 18 — RTX 30 support (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix18-Test.zip`: everything in
+Fix17, and the same NVOF + synthesis backend now also runs on RTX 30 (Ampere
+SM86). For RTX 30 it replaces GP9 (2.8.2 R3 GP9 Fixes1), which ran NVIDIA's
+closed driver model through patches; the Manager replaces owned GP9 installs.
+
+- `FIX18_NOTES.md`: differences from GP9, install, what to expect.
+- `DX12-Preview2-Fix18.patch`: source and document difference from Fix17.
+
+## Fix 17 — performance guard and stutter fix (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix17-Test.zip`: everything in Fix16,
 plus a guard that never lets generation lower the displayed frame rate.
