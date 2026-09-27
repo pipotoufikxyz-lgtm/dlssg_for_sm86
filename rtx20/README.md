@@ -1,6 +1,18 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 18 — RTX 30 support (current)
+## Fix 19 — steady crosshairs and HUD (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix19-Test.zip`: everything in
+Fix18, plus a full-frame static overlay mask (opaque and translucent HUD
+detail). The scene behind a crosshair is taken from the other frame instead
+of pasting misplaced blocks around it during pans (Assassin's Creed Origins
+recording). Fast-pan test: misplaced pixels 480 -> 101; translucent
+crosshairs no longer vanish.
+
+- `FIX19_NOTES.md`: recording, cause, changes, results table, limits.
+- `DX12-Preview2-Fix19.patch`: source and document difference from Fix18.
+
+## Fix 18 — RTX 30 support (previous)
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix18-Test.zip`: everything in
 Fix17, and the same NVOF + synthesis backend now also runs on RTX 30 (Ampere
