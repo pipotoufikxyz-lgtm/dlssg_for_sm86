@@ -1,0 +1,1154 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/BUILD.md work13/BUILD.md
+--- Fix12/BUILD.md	2026-09-26 23:25:59.584840466 +0000
++++ Fix13/BUILD.md	2026-09-27 00:01:58.910125480 +0000
+@@ -1,4 +1,4 @@
+-# Rebuild the RTX20 preview (DX12 Preview 2 Fix 12 Quality Test)
++# Rebuild the RTX20 preview (DX12 Preview 2 Fix 13 Pacing Test)
+ 
+ Use Python 3, Zig **0.14.1** or LLVM-MinGW, glslangValidator, and g++ for host tests.
+ No NVIDIA SDK download, CUDA toolkit, Windows SDK installation or driver binary
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix12-Quality-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix13-Pacing-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,7 +42,7 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix12
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix13
+ were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/CHANGELOG_RTX20.md work13/CHANGELOG_RTX20.md
+--- Fix12/CHANGELOG_RTX20.md	2026-09-26 23:25:59.584988208 +0000
++++ Fix13/CHANGELOG_RTX20.md	2026-09-27 00:01:58.909798988 +0000
+@@ -1,3 +1,11 @@
++# Fix13 pacing and performance test
++
++See FIX13_NOTES.md. Generated and real frames presented on consecutive
++refreshes (sync interval 1, optional Pacing=off), generation paused while the
++real frame rate reaches the display refresh (optional GenerateAboveRefresh=1),
++and a synthesis pass with about 35% fewer texture fetches per pixel. Exact
++Fix12 upgrades are recognized.
++
+ # Fix12 quality test
+ 
+ See FIX12_NOTES.md. Exposure-compensated motion matching with a robust local
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/FIX13_NOTES.md work13/FIX13_NOTES.md
+--- Fix12/FIX13_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix13/FIX13_NOTES.md	2026-09-27 00:01:22.943323966 +0000
+@@ -0,0 +1,120 @@
++# Fix 13 — pacing and performance test
++
++Runtime version: `2.8.4-rtx20-dx12-preview2-fix13-pacing-test`.
++
++Fix12 raised the frame counter but, in Blackwood, did not feel smoother. This
++build changes when and how generated frames are presented, and makes the
++synthesis shader cheaper. All Fix12 quality changes are kept. It is a test
++build: Windows/GPU execution and displayed cadence are still unverified.
++
++## Why it did not feel smoother (`nvsmooth30_37.log`)
++
++- RTX 2070 SUPER, 1920x1200, **92 Hz** display. Blackwood presents with
++  tearing (`sync=0 flags=ALLOW_TEARING`).
++- With F11 off the game ran at about 117 FPS. That is **already above the
++  92 Hz refresh**, so the display can show at most 92 distinct images per
++  second. Every generated frame took GPU time (flow about 1.4 ms, synthesis
++  about 1.7 ms per pair) and lowered the real rate to 98–108 FPS. None of it
++  could appear as extra smoothness.
++- Below the refresh rate there was a second problem. The generated frame and
++  the real frame were presented **back to back**, a fraction of a millisecond
++  apart. The display then shows the generated frame for almost no time, or a
++  torn slice of it, and the real frame for the rest. The counter doubles but
++  the motion stays uneven.
++
++## Changes
++
++- **Pause at or above the refresh rate.** After a short measurement
++  (0.75 s and at least 20 frames), generation pauses while the real frame rate
++  is at or above the display refresh rate. The game then runs at its native
++  frame rate with no frame-generation cost. Generation resumes when the native
++  rate drops below 90% of the refresh rate. In the Blackwood scene above, that
++  means about 117 FPS native instead of 98–108 with invisible extra frames.
++- **Even frame pacing (paired refresh).** Below the refresh rate, the generated
++  frame and the real frame after it are both presented with sync interval 1
++  (the tearing flag is removed for the pair). Each is shown for one full
++  refresh, so motion advances evenly at the display rate. This holds the game
++  at half the refresh rate: 30 real + 30 generated on 60 Hz, 46 + 46 on 92 Hz,
++  72 + 72 on 144 Hz.
++- **Cheaper synthesis.**
++  - The expensive candidate ranking now runs only where the neighbouring
++    vectors disagree.
++  - The HUD-overlay check runs only on pixels that are identical in both
++    frames.
++  - The fast path tries a zero exposure shift before estimating one.
++  - Distant second motions no longer block the fast path in zooms and
++    rotations.
++
++  Counted texture fetches per pixel in the synthesis pass fall from 244 to 159
++  (−35%) with full-resolution flow, and from 250 to 166 with half-resolution
++  flow. Output is identical to Fix12 in the full-resolution simulation (1413 bad
++  pixels clean, 1927 noisy). Half-resolution flow is 3% worse on the line-grid
++  scene only.
++- Fix12 runtime hashes are recognized for managed upgrades.
++
++## Settings (`nvsmooth30.ini`, `[RTX20]`, or environment variables)
++
++| Key | Environment | Default | Meaning |
++|---|---|---|---|
++| `Pacing` | `SM86_PACING` | `on` | `off` presents both frames immediately (Fix12 behaviour: higher counter, uneven cadence, no half-refresh cap) |
++| `GenerateAboveRefresh` | `SM86_GENERATE_ABOVE_REFRESH` | `0` | `1` keeps generating when the game already reaches the refresh rate |
++| `FlowResolution` | `SM86_FLOW_RESOLUTION` | `auto` | Unchanged from Fix11 |
++
++Copy `nvsmooth30.example.ini` beside the game executable as `nvsmooth30.ini`.
++
++## What to expect
++
++- **Blackwood (117 FPS native, 92 Hz):** generation pauses and the log shows
++  `presentation=paused`. You get the full native frame rate. Frame generation
++  cannot make a game smoother than the display refresh rate.
++- **A game at 125 FPS on a display of 120 Hz or less** (for example the 125 to
++  200 case): generation also pauses. On a 144 Hz or faster display it keeps
++  generating, paced at half the refresh rate.
++- **Witcher 3 at 30 FPS on 60 Hz:** unchanged frame rate. Generated and real
++  frames now alternate on consecutive refreshes instead of arriving together.
++- On a VRR (G-SYNC) display, pacing uses the maximum refresh rate.
++
++## Install and check
++
++1. Close the game. Replace the Fix12 file with `Manual/Version/version.dll`
++   (standalone), `Manual/ASI_Only/new.asi` (ASI) or use the Manager.
++2. The log must show the version above, then a line starting
++   `[rtx20] presentation: display NN Hz`, then after about one second
++   `presentation=paced`, `presentation=paused` or `presentation=immediate`.
++3. The status line reports `paced_pairs` and `generation_paused_frames`.
++4. Compare F11 on/off in the same scene. With pacing, the displayed frame rate
++   (not the game's FPS counter) should be the refresh rate, with even motion.
++
++## Limits
++
++- Paced mode holds the game at half the refresh rate, which adds up to about
++  one real frame of latency. If a game runs at, say, 100 FPS on a 144 Hz display,
++  72 real + 72 generated may feel less responsive than 100 native.
++  Try `Pacing=off` or F11 off and choose what you prefer.
++- The paced state is kept until F11 is toggled, the window is resized or
++  presentation is interrupted. If a scene becomes much lighter than the
++  refresh rate during a paced session, generation is not paused automatically.
++  Toggle F11 twice to measure again.
++- If the game cannot reach half the refresh rate, a real frame stays on screen
++  for extra refreshes and cadence becomes uneven again (for example 40 FPS on
++  144 Hz). Lower settings or the refresh rate, or use a game limiter at half
++  the refresh rate.
++- Paced pairs use VSync, so the game's tearing request is not used for them.
++- The fetch reduction is counted in the shader model, not measured on a GPU.
++  Check `performance_gpu_us` for the actual synthesis time.
++
++## Validation
++
++- **Presentation policy tests:**
++  - 30 FPS on 60 Hz → paced;
++  - 100 FPS and 92 FPS with generation on 92 Hz → paused;
++  - `Pacing=off` → immediate;
++  - forced generation, unknown refresh rate and too-short measurements;
++  - paced `present_pair` → sync 1 without tearing or DO_NOT_WAIT for both frames.
++
++  These pass in optimized and ASan/UBSan host builds.
++- All 17 shader behaviour groups pass unchanged.
++- All five entry points compile with glslang, and with DXC strict for HLSL 2016
++  and 2021.
++- The DX11 and DX12 smoke tests set `SM86_GENERATE_ABOVE_REFRESH=1` (unless
++  already set), because their test scene runs far above the refresh rate.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/MANUAL_INSTALL.md work13/MANUAL_INSTALL.md
+--- Fix12/MANUAL_INSTALL.md	2026-09-26 23:25:59.584690783 +0000
++++ Fix13/MANUAL_INSTALL.md	2026-09-27 00:02:07.897640219 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix12-quality-test` in the log.
+-Generated frames use interval 0 + DO_NOT_WAIT; real frames preserve game settings.
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix13-pacing-test` in the log.
++Generated and real frames are paced on consecutive refreshes (interval 1); generation pauses when the game reaches the refresh rate. Pacing=off restores interval 0 + DO_NOT_WAIT.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+-No fixed cap is added. Look for artifact_guard=occlusion_aware_v4. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. See FIX12_NOTES.md for the quality changes and test limits.
++No fixed FPS limiter is added; paced mode holds the game at half the refresh rate. Look for artifact_guard=occlusion_aware_v4. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=on|off and GenerateAboveRefresh=0|1 are also read there. See FIX13_NOTES.md for pacing and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/Manual/README.md work13/Manual/README.md
+--- Fix12/Manual/README.md	2026-09-26 23:27:23.495386944 +0000
++++ Fix13/Manual/README.md	2026-09-27 00:03:22.053508646 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-dx12-preview2-fix12-quality-test` in the log.
+-Generated frames use interval 0 + DO_NOT_WAIT; real frames preserve game settings.
++For this release, confirm `2.8.4-rtx20-dx12-preview2-fix13-pacing-test` in the log.
++Generated and real frames are paced on consecutive refreshes (interval 1); generation pauses when the game reaches the refresh rate. Pacing=off restores interval 0 + DO_NOT_WAIT.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+-No fixed cap is added. Look for artifact_guard=occlusion_aware_v4. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. See FIX12_NOTES.md for the quality changes and test limits.
++No fixed FPS limiter is added; paced mode holds the game at half the refresh rate. Look for artifact_guard=occlusion_aware_v4. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=on|off and GenerateAboveRefresh=0|1 are also read there. See FIX13_NOTES.md for pacing and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/README.md work13/README.md
+--- Fix12/README.md	2026-09-26 23:25:59.584443085 +0000
++++ Fix13/README.md	2026-09-27 00:01:58.909629896 +0000
+@@ -1,12 +1,16 @@
+-# SmoothMotion 2.8.4 RTX20 Fix 12 — quality test
++# SmoothMotion 2.8.4 RTX20 Fix 13 — pacing and performance test
+ 
+-Fix12 reduces artifacts from lighting changes between frames (auto-exposure,
+-flicker, moving shadows), background beside moving objects, and brightness
+-halos in occlusion fill. Fix11 performance and Fix10 fast-pan/HUD changes are
++Fix13 makes generated frames count on screen. The generated frame and the
++real frame after it are shown on consecutive refreshes instead of back to
++back. Generation pauses while the game already reaches the display refresh
++rate. The synthesis shader does about 35% less texture work per pixel. Fix12
++quality, Fix11 half-resolution flow and Fix10 fast-pan/HUD changes are
+ included.
+ 
+-Read `FIX12_NOTES.md` for changes, results and limits; `FIX11_NOTES.md`
+-explains adaptive half-resolution flow and the optional `nvsmooth30.ini`.
++Read `FIX13_NOTES.md` for the diagnosis, settings (`Pacing`,
++`GenerateAboveRefresh`) and limits. `FIX12_NOTES.md` covers the quality
++changes; `FIX11_NOTES.md` explains adaptive half-resolution flow and the
++optional `nvsmooth30.ini`.
+ Host shader tests pass, but Windows/GPU execution, in-game image quality and
+ performance still need verification on your PC.
+ 
+@@ -24,14 +28,14 @@
+ 3. Use DirectX 11 or DirectX 12, windowed/borderless SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.4-rtx20-dx12-preview2-fix12-quality-test` and
+-   `artifact_guard=occlusion_aware_v4` in `nvsmooth30.log`. Compare F11 on/off
++4. Confirm `2.8.4-rtx20-dx12-preview2-fix13-pacing-test`,
++   `artifact_guard=occlusion_aware_v4` and a `presentation=` line in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+    interpolation enabled. Read `Test/rtx20-dx12-test-report.txt`; backend-counter
+    PASS is separate from displayed-frame and performance validation.
+ 
+-The Manager recognizes exact released Preview 1, Preview 2, Fix 1–7 and GP9
++The Manager recognizes exact released Preview 1, Preview 2, Fix 1–12 and GP9
+ Fixes1 binaries. Managed upgrades preserve ownership, backup and uninstall
+ receipts. Manual copying does not update those receipts.
+ 
+@@ -46,10 +50,10 @@
+ | Dimensions | 128–3840 wide, 128–2160 high, subject to driver capabilities |
+ | DX12 queue | Exact DIRECT presentation queue, one GPU node, same adapter |
+ | DX12 swapchain | Flip model, 2–16 buffers; query the current buffer for every copy |
+-| Pacing | Generated Present uses interval 0 + DO_NOT_WAIT; real Present preserves caller parameters |
++| Pacing | Below the refresh rate: generated and real Present both use interval 1 (one refresh each, game held at half the refresh rate). At or above it: generation pauses. `Pacing=off`: generated interval 0 + DO_NOT_WAIT, real Present preserves caller parameters |
+ | Tearing | Only valid interval-0, windowed ALLOW_TEARING requests are admitted |
+ | Unsupported | Vulkan, OpenGL, HDR/10-bit/float, exclusive fullscreen, MSAA, partial/scroll presents, protected content, multiple presentation queues/GPU nodes |
+-| Validation | Fix12 Windows/GPU execution, displayed output and performance remain unverified |
++| Validation | Fix13 Windows/GPU execution, displayed output and performance remain unverified |
+ 
+ No CUDA toolkit or Optical Flow SDK installation is required on the game PC.
+ The runtime loads its NVIDIA and shader-compiler DLLs from System32 and does
+@@ -104,6 +108,10 @@
+   prepare contains nested phases, so do not add them together as total time.
+ - `generated_present_queue_busy` counts skipped synthetic submissions under
+   queue pressure. These are not accepted generated frames.
++- `presentation=paced|immediate|paused` lines, `paced_pairs` and
++  `generation_paused_frames` show how generated frames were presented, and
++  how many real frames ran without generation because the game already
++  reached the refresh rate.
+ - `interpolation_verified` remains false; counters do not measure display output.
+ 
+ `Test/ShaderCheck.exe` checks runtime shader compilation. `Test/RTX20_SmokeTest.exe`
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/SOURCES.md work13/SOURCES.md
+--- Fix12/SOURCES.md	2026-09-26 23:25:59.584765839 +0000
++++ Fix13/SOURCES.md	2026-09-27 00:01:58.909967238 +0000
+@@ -1,4 +1,12 @@
+-# Fix12 source update
++# Fix13 source update
++
++Fix13 adds the presentation policy (source/rtx20/policy.hpp,
++present_sequence.hpp, interpolator.cpp, dxgi_hooks.cpp, performance.hpp),
++restructures the synthesis shader for cost, and sets
++SM86_GENERATE_ABOVE_REFRESH in the smoke tests.
++`validation/DX12-Preview2-Fix13.patch` is the difference from Fix12.
++
++## Fix12
+ 
+ Fix12 changes the synthesis shader (exposure-compensated matching, robust
+ exposure estimate, crossing-object check, exposure-corrected occlusion fill)
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/Test/README.md work13/Test/README.md
+--- Fix12/Test/README.md	2026-09-26 23:25:59.584599322 +0000
++++ Fix13/Test/README.md	2026-09-27 00:01:58.910048078 +0000
+@@ -1,3 +1,11 @@
++# Fix13 notes for the tests
++
++`RTX20_SmokeTest.exe` and `RTX20_DX12_SmokeTest.exe` set
++`SM86_GENERATE_ABOVE_REFRESH=1` unless it is already set, because the test
++scene runs far above the display refresh rate. They exercise paced
++presentation (interval 1) unless `SM86_PACING=off` is set. Tearing phases
++still count `present_tearing_eligible`; paced pairs themselves do not tear.
++
+ # Fix12 shader validation
+ 
+ Run `ShaderCheck.exe` first: it must report PASS for Fullscreen, Capture,
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/VALIDATION.md work13/VALIDATION.md
+--- Fix12/VALIDATION.md	2026-09-26 23:25:59.584921160 +0000
++++ Fix13/VALIDATION.md	2026-09-27 00:01:58.909889417 +0000
+@@ -1,6 +1,6 @@
+-# Fix12 validation and limits
++# Fix13 validation and limits
+ 
+-All results below refer to the current Fix12 sources. Reports contain source and
++All results below refer to the current Fix13 sources. Reports contain source and
+ binary hashes; the package verifier rejects stale reports and carriers.
+ 
+ - Five HLSL entry points (`Fullscreen`, `Capture`, `Project`, `Synthesize`,
+@@ -29,6 +29,13 @@
+   current frame. Fix8 fails the same limits with 791–1515 wrong pixels. In a
+   3.5-pixel crossing pole, 184/184 midpoint pole pixels are visible; Fix8 shows
+   0/184.
++- Fix13 restructures the synthesis pass for cost (vector-only spread check,
++  lazy HUD check, zero-shift fast path, ranking only in the slow path). Counted
++  fetches per pixel fall from 244 to 159 (half-resolution flow 250 to 166).
++  All seventeen groups pass unchanged, and full-resolution simulation output
++  equals Fix12. The presentation policy (measurement, pause at the refresh
++  rate, paired-refresh pacing, overrides) and paced `present_pair` flags have
++  host tests in policy_test.cpp. Displayed cadence is not measured here.
+ - Fix12 adds an exposure group: a +15% auto-exposure change during two
+   parallax motions must keep midpoint RMSE below 32% of copying the current
+   frame (Fix12 19-27%, Fix11 29-42% and fails).
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/nvsmooth30.example.ini work13/nvsmooth30.example.ini
+--- Fix12/nvsmooth30.example.ini	2026-09-26 22:49:13.498003079 +0000
++++ Fix13/nvsmooth30.example.ini	2026-09-26 23:58:47.839367566 +0000
+@@ -6,3 +6,14 @@
+ ; full: always full resolution (best thin detail, highest GPU cost).
+ ; half: always half resolution (lowest GPU cost, 8-pixel flow cells).
+ FlowResolution=auto
++
++; on:  when the game runs below the display refresh rate, each generated
++;      frame and the real frame after it are shown on consecutive
++;      refreshes (even motion; the game is held at half the refresh rate).
++; off: present both frames immediately (higher counter, uneven cadence).
++Pacing=on
++
++; 0: stop generating while the real frame rate is at or above the display
++;    refresh rate (extra frames could not be shown anyway).
++; 1: always generate.
++GenerateAboveRefresh=0
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/build_release.py work13/source/build_release.py
+--- Fix12/source/build_release.py	2026-09-26 23:25:06.714052906 +0000
++++ Fix13/source/build_release.py	2026-09-26 23:59:10.620698474 +0000
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build and verify the complete RTX20 DX12 Preview 2 Fix 12 Quality Test release."""
++"""Build and verify the complete RTX20 DX12 Preview 2 Fix 13 Pacing Test release."""
+ import argparse,pathlib,subprocess,sys,shutil
+ import build_toolchain
+ r=pathlib.Path(__file__).resolve().parents[1]
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/manager/helper_identity.hpp work13/source/manager/helper_identity.hpp
+--- Fix12/source/manager/helper_identity.hpp	2026-09-26 23:27:03.848906066 +0000
++++ Fix13/source/manager/helper_identity.hpp	2026-09-27 00:03:02.237841883 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="d9b00958c30e4cd61a98f9491d9a9b26932acddaa11a0816ab5055232699823a";
+-inline constexpr char collector[]="3ad07fce44a69515394f73f78b160e96a1f5c84701e383bdf639799b6cb28321";
++inline constexpr char installer[]="1be4809b41c3b85d6189afe59aaafc16b099738313c78ad099382e8cbd97057b";
++inline constexpr char collector[]="38dd04dc74933d06d755e96dedc6a0617774a95c8292b06c657fc20c31e2384a";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/manager/manager.cpp work13/source/manager/manager.cpp
+--- Fix12/source/manager/manager.cpp	2026-09-26 23:25:06.714508288 +0000
++++ Fix13/source/manager/manager.cpp	2026-09-26 23:58:07.259273351 +0000
+@@ -438,7 +438,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- labelUi(L"RTX20 Manager 2.8.4-p2-fix12-test\nTuring",{45,app.height-77,185,app.height-36},app.small,muted());
++ labelUi(L"RTX20 Manager 2.8.4-p2-fix13-test\nTuring",{45,app.height-77,185,app.height-36},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -466,7 +466,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix12-quality-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Native glass interface.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-dx12-preview2-fix13-pacing-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Native glass interface.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/motion/identity.hpp work13/source/motion/identity.hpp
+--- Fix12/source/motion/identity.hpp	2026-09-26 23:25:06.714861745 +0000
++++ Fix13/source/motion/identity.hpp	2026-09-26 23:58:16.338145311 +0000
+@@ -98,8 +98,11 @@
+ // Exact attached Fix11 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix11Native="d416293bea8f76a92247e2f79d0ff8a3b11d7d8607dfbe5d26096308c2ef17f0";
+ inline constexpr const char* releaseRTX20Preview2Fix11NativeProxy="f57c9449ee3d59255fbdbff520bc531508bbb8eb9eee501157086409e4deae8b";
+-inline constexpr std::array<const char*,31> previousNativeProxies{{releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,41> previousPlugins{{releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++// Exact attached Fix12 bytes retained for managed upgrades.
++inline constexpr const char* releaseRTX20Preview2Fix12Native="584ad0d64f2418f03128f32426ace5ee9fb9c3f0b18442e349a61f451b499cea";
++inline constexpr const char* releaseRTX20Preview2Fix12NativeProxy="d287005b62eba4247a9a0d1b5b06d9d4dca3207253212e148282c4376bdf302a";
++inline constexpr std::array<const char*,32> previousNativeProxies{{releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,42> previousPlugins{{releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/package_release.py work13/source/package_release.py
+--- Fix12/source/package_release.py	2026-09-26 23:25:06.714136155 +0000
++++ Fix13/source/package_release.py	2026-09-26 23:58:07.259438128 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix12-Quality-Test'
++archive_root='SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix13-Pacing-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/build.py work13/source/rtx20/build.py
+--- Fix12/source/rtx20/build.py	2026-09-26 23:25:06.713803707 +0000
++++ Fix13/source/rtx20/build.py	2026-09-26 23:58:07.258123604 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix12-quality-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-dx12-preview2-fix13-pacing-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.4-rtx20-dx12-preview2-fix12-quality-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.4-rtx20-dx12-preview2-fix13-pacing-test','compiler':build_toolchain.identity(a),'backend':'Turing NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/dx12_smoke_test.cpp work13/source/rtx20/dx12_smoke_test.cpp
+--- Fix12/source/rtx20/dx12_smoke_test.cpp	2026-09-26 20:00:08.000000000 +0000
++++ Fix13/source/rtx20/dx12_smoke_test.cpp	2026-09-27 00:00:13.407026791 +0000
+@@ -107,6 +107,9 @@
+ }
+ int main(){
+  SetProcessDPIAware();wchar_t file[32768]{};GetModuleFileNameW(nullptr,file,32768);std::wstring dir(file);dir.resize(dir.find_last_of(L"\\/")+1);
++ // The test scene runs far above the display refresh; keep generation active
++ // (the runtime otherwise pauses it there) unless the user chose a value.
++ if(!GetEnvironmentVariableW(L"SM86_GENERATE_ABOVE_REFRESH",nullptr,0))SetEnvironmentVariableW(L"SM86_GENERATE_ABOVE_REFRESH",L"1");
+  auto module=LoadLibraryExW((dir+L"new.asi").c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
+  using Entry=void(*)();using Status=unsigned(WINAPI*)(char*,unsigned);
+  auto entry=module?reinterpret_cast<Entry>(GetProcAddress(module,"InitializeASI")):nullptr;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/dxgi_hooks.cpp work13/source/rtx20/dxgi_hooks.cpp
+--- Fix12/source/rtx20/dxgi_hooks.cpp	2026-09-26 22:43:29.995162194 +0000
++++ Fix13/source/rtx20/dxgi_hooks.cpp	2026-09-27 00:00:13.407237704 +0000
+@@ -217,7 +217,7 @@
+  if(!state)return original(Skip::context);
+  if(state->revision.transitioning()||state->presenting.exchange(true))return original(Skip::busy);
+  struct Release {Context* p;~Release(){p->presenting=false;}} sequence{state.Get()};
+- bool generated=false,generatedAccepted=false,interrupted=false;std::uint64_t revision{};
++ bool generated=false,generatedAccepted=false,interrupted=false,paced=false;std::uint64_t revision{};
+  auto interruptedPair=[&]{if(!interrupted){interrupted=true;recordSkip(Skip::transition,sync,flags,partial);}};
+  {
+   std::unique_lock hold(state->mutex,std::try_to_lock);if(!hold.owns_lock())return original(Skip::busy);if(state->revision.transitioning()){hold.unlock();return original(Skip::busy);}
+@@ -246,8 +246,10 @@
+   revision=state->revision.checkpoint();
+   if(!state->revision.current(revision)){state->interpolator.discard_history();hold.unlock();return original(Skip::transition);}
+   if(++eligiblePresents==1)logf("[rtx20] Present admitted: sync=%u flags=0x%x partial=%d api=%s.\n",sync,flags,partial?1:0,state->isDX12?"D3D12":"D3D11");
+-  if(flags==DXGI_PRESENT_ALLOW_TEARING&&++eligibleTearing==1)logf("[rtx20] Tearing Present admitted; generated sync=0 flags=ALLOW_TEARING|DO_NOT_WAIT, original preserves game sync=0 flags=ALLOW_TEARING.\n");
++  if(flags==DXGI_PRESENT_ALLOW_TEARING&&++eligibleTearing==1)logf("[rtx20] Tearing Present admitted; unpaced: generated sync=0 flags=ALLOW_TEARING|DO_NOT_WAIT, original preserves game sync=0 flags=ALLOW_TEARING; paced pairs: both sync=1 without tearing.\n");
+   {sm20::performance::Scope timing(sm20::performance::Phase::prepare);generated=state->interpolator.prepare(swap,state->presentQueue.Get());}
++  paced=generated&&state->interpolator.paced();
++  if(paced)++sm20::performance::paced_pairs;
+   if(FAILED(state->interpolator.terminal_error()))return state->interpolator.terminal_error();
+   if(!state->revision.current(revision)){state->interpolator.discard_history();hold.unlock();return original(Skip::transition);}
+   if(generated){
+@@ -262,7 +264,7 @@
+   const auto phase=generated&&submitted++==0?sm20::performance::Phase::generated_present:sm20::performance::Phase::real_present;
+   sm20::performance::Scope timing(phase);return forward(interval,f);
+  };
+- const auto result=static_cast<HRESULT>(sm20::present_pair(generated,sync,flags,timedForward,
++ const auto result=static_cast<HRESULT>(sm20::present_pair(generated,paced,sync,flags,timedForward,
+   [&]{std::scoped_lock hold(state->mutex);
+    if(!state->revision.current(revision)){interruptedPair();return sm20::RestoreResult::interrupted;}
+    sm20::performance::Scope timing(sm20::performance::Phase::original_write);
+@@ -585,7 +587,7 @@
+   "\"presentation_profile\":\"%s\",\"presentation_hooks_enabled\":%s,\"present_counter_kind\":\"%s\",\"present_calls\":%llu,\"bridge_submissions\":%llu,\"bridge_present_attempts\":%llu,\"bridge_present_failures\":%llu,"
+   "\"bridge_test_calls\":%llu,\"bridge_occluded\":%llu,\"bridge_busy\":%llu,\"passthrough_calls\":%llu,"
+   "\"present_eligible\":%llu,\"present_tearing_eligible\":%llu,\"present_skips\":{%s},"
+-  "\"dx12_sessions\":%llu,\"dx12_captures\":%llu,\"dx12_writes\":%llu,\"dx12_transfer_failures\":%llu,\"flow_pairs\":%llu,\"generated_present_accepted\":%llu,\"real_present_accepted\":%llu,\"rtx20_failures\":%llu,\"legacy_cuda_calls\":%llu,\"performance_cpu_wall_us\":{%s},\"performance_gpu_us\":{%s},\"generated_present_queue_busy\":%llu,\"pacing\":\"generated_immediate_nonblocking_original_game\",\"runtime_fps_cap\":0,\"interpolation_verified\":false}",
++  "\"dx12_sessions\":%llu,\"dx12_captures\":%llu,\"dx12_writes\":%llu,\"dx12_transfer_failures\":%llu,\"flow_pairs\":%llu,\"generated_present_accepted\":%llu,\"real_present_accepted\":%llu,\"rtx20_failures\":%llu,\"legacy_cuda_calls\":%llu,\"performance_cpu_wall_us\":{%s},\"performance_gpu_us\":{%s,\"generated_present_queue_busy\":%llu,\"pacing\":\"generated_paired_refresh_or_immediate\",\"runtime_fps_cap\":0,\"interpolation_verified\":false}",
+   sm20::runtime_status(),nativeReady?"true":"false",imports::patched.load(),imports::scans.load(),
+   static_cast<unsigned long long>(module_watch::generation.load()),module_watch::registered?"true":"false",
+   imports::providers.count(),imports::providerPatches.load(),imports::providerResolutions.load(),
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/interpolator.cpp work13/source/rtx20/interpolator.cpp
+--- Fix12/source/rtx20/interpolator.cpp	2026-09-26 23:25:06.714749368 +0000
++++ Fix13/source/rtx20/interpolator.cpp	2026-09-26 23:55:36.246307450 +0000
+@@ -54,18 +54,24 @@
+  void close(){if(active){auto rc=cuda.unmap(4,resources.data(),nullptr);active=false;cu(rc,"cuGraphicsUnmapResources");}}
+  ~Mapped(){if(active)cuda.unmap(4,resources.data(),nullptr);}
+ };
+-// Flow resolution setting: SM86_FLOW_RESOLUTION, else [RTX20] FlowResolution
+-// in nvsmooth30.ini beside the game executable (auto, full or half).
+-FlowResolution read_flow_setting(){
++// Settings: environment variable first, else [RTX20] in nvsmooth30.ini beside
++// the game executable, else the default.
++std::wstring read_setting(const wchar_t* environment,const wchar_t* key,const wchar_t* fallback){
+  wchar_t value[32]{};
+- DWORD n=GetEnvironmentVariableW(L"SM86_FLOW_RESOLUTION",value,32);
+- if(n&&n<32)return parse_flow_resolution(value);
++ DWORD n=GetEnvironmentVariableW(environment,value,32);
++ if(n&&n<32)return value;
+  std::wstring module(32768,L'\0');n=GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
+- if(!n||n>=module.size())return FlowResolution::automatic;
++ if(!n||n>=module.size())return fallback;
+  module.resize(n);
+  const auto ini=std::filesystem::path(module).parent_path()/L"nvsmooth30.ini";
+- GetPrivateProfileStringW(L"RTX20",L"FlowResolution",L"auto",value,32,ini.c_str());
+- return parse_flow_resolution(value);
++ GetPrivateProfileStringW(L"RTX20",key,fallback,value,32,ini.c_str());
++ return value;
++}
++bool setting_on(const std::wstring& value){
++ return value==L"1"||_wcsicmp(value.c_str(),L"on")==0||_wcsicmp(value.c_str(),L"true")==0||_wcsicmp(value.c_str(),L"yes")==0;
++}
++FlowResolution read_flow_setting(){
++ return parse_flow_resolution(read_setting(L"SM86_FLOW_RESOLUTION",L"FlowResolution",L"auto").c_str());
+ }
+ const char* flow_setting_name(FlowResolution setting){
+  return setting==FlowResolution::full?"full":setting==FlowResolution::half?"half":"auto";
+@@ -121,6 +127,8 @@
+  unsigned halfWidth{},halfHeight{};
+  FlowResolution flowSetting{FlowResolution::automatic};
+  bool halfMode{};
++ // Display refresh (0 if unknown) and generated-frame presentation state.
++ double refreshHz{};PresentationPolicy presentation;
+  double frameInterval{};std::chrono::steady_clock::time_point lastAcceptedTime{};
+  // Non-blocking GPU timestamps: capture, optical flow, synthesis.
+  struct GpuTimer {ComPtr<ID3D11Query> disjoint;std::array<ComPtr<ID3D11Query>,4> stamps;bool pending{};};
+@@ -152,9 +160,11 @@
+   width=d.Width;height=d.Height;format=d.Format;
+   ComPtr<IDXGIOutput> output;DXGI_OUTPUT_DESC outputDesc{};DEVMODEW mode{};mode.dmSize=sizeof mode;
+   if(SUCCEEDED(swap->GetContainingOutput(&output))&&SUCCEEDED(output->GetDesc(&outputDesc))&&
+-     EnumDisplaySettingsW(outputDesc.DeviceName,ENUM_CURRENT_SETTINGS,&mode))
++     EnumDisplaySettingsW(outputDesc.DeviceName,ENUM_CURRENT_SETTINGS,&mode)){
++   refreshHz=mode.dmDisplayFrequency>1?mode.dmDisplayFrequency:0;
+    logf("[rtx20] Display: %ls %lux%lu refresh=%lu Hz; windowed=%u; generated Present sync=0 + DO_NOT_WAIT, original preserves game parameters; no runtime FPS cap.\n",
+         outputDesc.DeviceName,mode.dmPelsWidth,mode.dmPelsHeight,mode.dmDisplayFrequency,unsigned(chain.Windowed));
++  }
+   require(device.As(&device1),"D3D11.1 device");
+   device->GetImmediateContext(&context);require(context.As(&context1),"D3D11.1 context");
+   if(!dx12)context.As(&gameMultithread);
+@@ -186,6 +196,12 @@
+    }
+   }
+   flowSetting=read_flow_setting();
++  presentation.generateAboveRefresh=setting_on(read_setting(L"SM86_GENERATE_ABOVE_REFRESH",L"GenerateAboveRefresh",L"0"));
++  presentation.pacing=setting_on(read_setting(L"SM86_PACING",L"Pacing",L"on"));
++  presentation.refreshHz=refreshHz;
++  performance::pacing_enabled=presentation.pacing;
++  logf("[rtx20] presentation: display %.0f Hz; pause when the real rate reaches it %s; paired-refresh pacing %s.\n",refreshHz,
++       presentation.generateAboveRefresh?"disabled (GenerateAboveRefresh=1)":"enabled",presentation.pacing?"enabled":"disabled (Pacing=off)");
+   if(nativeFlow&&flowSetting!=FlowResolution::full){
+    // Optional: failure leaves full-resolution flow in use.
+    try{
+@@ -312,7 +328,19 @@
+   D3D11_TEXTURE2D_DESC desc{};back->GetDesc(&desc);
+   if(desc.Width!=width||desc.Height!=height||desc.Format!=format)throw std::runtime_error("swapchain changed without resize notification");
+   captured=generatedReady=false;
+-  const bool interpolating=history&&fresh_history(lastAccepted,GetTickCount64());
++  // Presentation state (see PresentationPolicy): measure, then pace pairs on
++  // consecutive refreshes, or pause when frames could not be displayed.
++  const double realFps=frameInterval>0?1/frameInterval:0;
++  const auto before=presentation.state;
++  presentation.update(std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(),realFps);
++  if(presentation.state!=before){
++   static constexpr const char* names[]={"measuring","paced (generated and real frame on consecutive refreshes)","immediate (unpaced)","paused"};
++   logf("[rtx20] presentation=%s at %.0f real FPS, %.0f Hz display%s.\n",names[static_cast<int>(presentation.state)],realFps,refreshHz,
++        presentation.state==Presentation::paused?"; generated frames would not be visible (GenerateAboveRefresh=1 overrides)":"");
++  }
++  const bool fresh=history&&fresh_history(lastAccepted,GetTickCount64());
++  if(fresh&&!presentation.generating())++performance::paused_frames;
++  const bool interpolating=fresh&&presentation.generating();
+   GpuTimer* timer=nullptr;
+   if(timersReady&&interpolating){
+    ContextTransaction<ID3D11Multithread> transaction(gameMultithread.Get());
+@@ -434,6 +462,7 @@
+   impl_->frameInterval=update_frame_interval(impl_->frameInterval,std::chrono::duration<double>(now-impl_->lastAcceptedTime).count());
+  impl_->lastAcceptedTime=now;
+ }
+-void Interpolator::discard_history(){if(impl_)impl_->history=impl_->captured=impl_->generatedReady=false;}
++void Interpolator::discard_history(){if(impl_){impl_->history=impl_->captured=impl_->generatedReady=false;impl_->presentation.reset();}}
+ bool Interpolator::ready()const{return impl_&&!failed_;}
++bool Interpolator::paced()const{return impl_&&impl_->presentation.paced();}
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/interpolator.hpp work13/source/rtx20/interpolator.hpp
+--- Fix12/source/rtx20/interpolator.hpp	2026-09-26 20:00:08.000000000 +0000
++++ Fix13/source/rtx20/interpolator.hpp	2026-09-26 23:55:36.246524115 +0000
+@@ -22,5 +22,7 @@
+  void discard_history();
+  void reset(bool retry=true);
+  bool ready() const;
++ // Present the generated/real pair on consecutive refreshes (sync interval 1).
++ bool paced() const;
+ };
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/performance.hpp work13/source/rtx20/performance.hpp
+--- Fix12/source/rtx20/performance.hpp	2026-09-26 22:43:19.893834897 +0000
++++ Fix13/source/rtx20/performance.hpp	2026-09-26 23:55:36.247303266 +0000
+@@ -35,6 +35,11 @@
+  auto old=s.max_us.load(std::memory_order_relaxed);
+  while(old<us&&!s.max_us.compare_exchange_weak(old,us,std::memory_order_relaxed)){}
+ }
++// Generated/real pairs presented on consecutive refreshes, frames where
++// generation was paused because the real rate already reached the display
++// refresh, and whether paired-refresh pacing is configured.
++inline std::atomic_ullong paced_pairs{},paused_frames{};
++inline std::atomic_bool pacing_enabled{true};
+ inline void gpu_json(char* buffer,std::size_t size){
+  if(!size)return;buffer[0]=0;std::size_t used=0;
+  for(unsigned i=0;i<gpu_samples.size();++i){
+@@ -43,8 +48,9 @@
+    s.calls.load(std::memory_order_relaxed),s.total_us.load(std::memory_order_relaxed),s.max_us.load(std::memory_order_relaxed));
+   if(n<0||static_cast<std::size_t>(n)>=size-used){buffer[0]=0;return;}used+=static_cast<std::size_t>(n);
+  }
+- const int n=std::snprintf(buffer+used,size-used,"\"flow_pairs_full\":%llu,\"flow_pairs_half\":%llu",
+-  full_flow_pairs.load(std::memory_order_relaxed),half_flow_pairs.load(std::memory_order_relaxed));
++ const int n=std::snprintf(buffer+used,size-used,"\"flow_pairs_full\":%llu,\"flow_pairs_half\":%llu},\"pacing_enabled\":%s,\"paced_pairs\":%llu,\"generation_paused_frames\":%llu",
++  full_flow_pairs.load(std::memory_order_relaxed),half_flow_pairs.load(std::memory_order_relaxed),pacing_enabled.load()?"true":"false",
++  paced_pairs.load(std::memory_order_relaxed),paused_frames.load(std::memory_order_relaxed));
+  if(n<0||static_cast<std::size_t>(n)>=size-used)buffer[0]=0;
+ }
+ // Cumulative CPU wall time, including waits. These are not GPU durations or
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/policy.hpp work13/source/rtx20/policy.hpp
+--- Fix12/source/rtx20/policy.hpp	2026-09-26 22:43:04.043913189 +0000
++++ Fix13/source/rtx20/policy.hpp	2026-09-26 23:54:03.504052999 +0000
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <algorithm>
+ #include <cstdint>
+ namespace sm20 {
+ // Control flags and dirty/scroll updates keep their original presentation.
+@@ -44,4 +45,55 @@
+  if(!(seconds>0)||seconds>0.25)return 0;
+  return average>0?average+(seconds-average)*0.1:seconds;
+ }
++// Generated frames beyond the display refresh rate are never shown: they only
++// add tearing, latency and GPU load. While generating, the measured real
++// rate already includes generation cost; pause once it reaches the refresh
++// rate, and resume only when the native rate drops clearly below it.
++inline bool generation_useful(bool generating,double realFps,double refreshHz) {
++ if(!(refreshHz>1)||!(realFps>0))return true;
++ return realFps<refreshHz*(generating?1.02:0.9);
++}
++// Presentation of generated frames. Both frames of a pair are submitted from
++// the game's Present, so the GPU completes them back to back: presented
++// immediately, the generated frame is replaced within about a millisecond
++// (or dropped by composition) and motion does not look smoother. Paced mode
++// presents both with sync interval 1, so the generated frame occupies one
++// refresh and the real frame the next; the game then runs at half the
++// refresh rate with even motion at the full rate.
++//   measuring: generate unpaced for ~0.75 s to measure the real rate;
++//   paced:     generate, both frames on consecutive refreshes;
++//   immediate: generate unpaced (Pacing=off);
++//   paused:    real rate already at/above refresh, generated frames would
++//              not be visible; resume (via measuring) below 90% of refresh.
++enum class Presentation { measuring, paced, immediate, paused };
++struct PresentationPolicy {
++ bool pacing{true},generateAboveRefresh{};double refreshHz{};
++ Presentation state{Presentation::measuring};
++ double measureStart{-1};unsigned measureFrames{};
++ void reset(){state=Presentation::measuring;measureStart=-1;measureFrames=0;}
++ // Once per real frame; realFps is the running average of the real rate.
++ Presentation update(double now,double realFps){
++  const bool visible=generateAboveRefresh||generation_useful(state!=Presentation::paused,realFps,refreshHz);
++  switch(state){
++   case Presentation::measuring:
++    if(measureStart<0){measureStart=now;measureFrames=0;}
++    if(++measureFrames>=20&&now-measureStart>=0.75){
++     measureStart=-1;
++     state=!visible?Presentation::paused:pacing?Presentation::paced:Presentation::immediate;
++    }
++    break;
++   case Presentation::immediate:
++    if(!visible)state=Presentation::paused;
++    break;
++   case Presentation::paused:
++    if(visible)reset();
++    break;
++   case Presentation::paced:
++    break;
++  }
++  return state;
++ }
++ bool generating() const {return state!=Presentation::paused;}
++ bool paced() const {return state==Presentation::paced;}
++};
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/policy_test.cpp work13/source/rtx20/policy_test.cpp
+--- Fix12/source/rtx20/policy_test.cpp	2026-09-26 22:43:04.044050187 +0000
++++ Fix13/source/rtx20/policy_test.cpp	2026-09-26 23:54:54.202422391 +0000
+@@ -126,5 +126,62 @@
+   assert(update_frame_interval(0,1/60.0)==1/60.0);
+  }
+  std::cout<<"PASS: flow resolution selection and frame-interval averaging\n";
++ {
++  // Refresh gate: 118 native FPS on a 92 Hz display pauses; 30 on 60 Hz does not.
++  assert(generation_useful(true,30,60)&&generation_useful(false,30,60));
++  assert(!generation_useful(true,100,92));            // generating, already above refresh
++  assert(!generation_useful(false,118,92));           // paused, native above refresh
++  assert(!generation_useful(false,85,92)&&generation_useful(false,80,92));  // hysteresis
++  assert(generation_useful(true,93,92)&&!generation_useful(true,94,92));
++  assert(generation_useful(true,200,0)&&generation_useful(false,0,92));    // unknown rates
++  // Presentation policy. Witcher-like: 30 FPS on 60 Hz -> paced.
++  PresentationPolicy witcher;witcher.refreshHz=60;
++  double t=0;
++  for(int i=0;i<23;++i){assert(witcher.update(t,30)==Presentation::measuring&&witcher.generating()&&!witcher.paced());t+=1/30.0;}
++  assert(t>=0.75&&witcher.update(t,30)==Presentation::paced&&witcher.paced());
++  assert(witcher.update(t+10,29)==Presentation::paced);       // capped rate never re-decides
++  witcher.reset();assert(witcher.state==Presentation::measuring);
++  // Blackwood-like: 100 real FPS while generating on 92 Hz -> paused; native
++  // 118 stays paused; a heavy scene at 80 resumes measuring.
++  PresentationPolicy blackwood;blackwood.refreshHz=92;t=0;
++  for(int i=0;i<80;++i){blackwood.update(t,100);t+=0.01;}
++  assert(blackwood.state==Presentation::paused&&!blackwood.generating());
++  assert(blackwood.update(t,118)==Presentation::paused);
++  assert(blackwood.update(t,85)==Presentation::paused);
++  assert(blackwood.update(t,80)==Presentation::measuring);
++  // Pacing=off: measuring -> immediate; immediate pauses above refresh.
++  PresentationPolicy uncapped;uncapped.pacing=false;uncapped.refreshHz=144;t=0;
++  for(int i=0;i<80;++i){uncapped.update(t,70);t+=1/70.0;}
++  assert(uncapped.state==Presentation::immediate&&uncapped.generating()&&!uncapped.paced());
++  assert(uncapped.update(t,150)==Presentation::paused);
++  // GenerateAboveRefresh=1 never pauses; unknown refresh never pauses.
++  PresentationPolicy forced;forced.generateAboveRefresh=true;forced.refreshHz=60;t=0;
++  for(int i=0;i<200;++i){forced.update(t,200);t+=0.005;}
++  assert(forced.state==Presentation::paced);
++  PresentationPolicy unknown;t=0;
++  for(int i=0;i<200;++i){unknown.update(t,200);t+=0.005;}
++  assert(unknown.state==Presentation::paced);
++  // Too few frames or too little time: still measuring.
++  PresentationPolicy brief;brief.refreshHz=60;
++  for(int i=0;i<100;++i)brief.update(i*0.001,30);
++  assert(brief.state==Presentation::measuring);
++ }
++ {
++  // Paced pair: both frames at sync interval 1, tearing flag removed, the
++  // generated submission may wait (no DO_NOT_WAIT); unpaced is unchanged.
++  std::vector<std::pair<unsigned,unsigned>> calls;unsigned restores=0;bool ok=false;
++  const auto hr=present_pair(true,true,0,present_allow_tearing,[&](unsigned sync,unsigned flags){calls.push_back({sync,flags});return 0;},
++   [&]{++restores;return RestoreResult::restored;},[&](bool accepted){ok=accepted;},[]{},[]{assert(false);});
++  assert(hr==0&&ok&&restores==1&&calls.size()==2&&calls[0]==std::make_pair(1u,0u)&&calls[1]==std::make_pair(1u,0u));
++  calls.clear();
++  present_pair(false,true,0,present_allow_tearing,[&](unsigned sync,unsigned flags){calls.push_back({sync,flags});return 0;},
++   [&]{return RestoreResult::restored;},[](bool){},[]{},[]{});
++  assert(calls.size()==1&&calls[0]==std::make_pair(0u,present_allow_tearing));   // no generated frame: caller's own parameters
++  calls.clear();
++  present_pair(true,false,1,0,[&](unsigned sync,unsigned flags){calls.push_back({sync,flags});return 0;},
++   [&]{return RestoreResult::restored;},[](bool){},[]{},[]{});
++  assert(calls.size()==2&&calls[0]==std::make_pair(0u,generated_do_not_wait)&&calls[1]==std::make_pair(1u,0u));
++ }
++ std::cout<<"PASS: refresh-rate generation gate and paired-refresh presentation policy\n";
+  std::cout<<"PASS: admission/pass-through policies, immediate nonblocking generated submissions, queue saturation recovery, original frame priority, errors and transition interruption/recovery\n";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/present_sequence.hpp work13/source/rtx20/present_sequence.hpp
+--- Fix12/source/rtx20/present_sequence.hpp	2026-09-26 20:00:08.000000000 +0000
++++ Fix13/source/rtx20/present_sequence.hpp	2026-09-26 23:54:54.202286886 +0000
+@@ -23,14 +23,19 @@
+ inline constexpr unsigned generated_do_not_wait=0x8;
+ inline constexpr std::int32_t present_still_drawing=static_cast<std::int32_t>(0x887a000au);
+ // Admission has already validated flags (0 or a legal ALLOW_TEARING).
+-// Synthetic work never requests a VBlank or waits for a full presentation queue.
+-// Queue pressure drops only that optional submission. Restore the real image
+-// before forwarding the caller's Present exactly once, with its original flags.
+-// Other DXGI statuses/errors retain their original result and reject history.
++// Unpaced: synthetic work never requests a VBlank or waits for a full
++// presentation queue; queue pressure drops only that optional submission.
++// Paced: both frames use sync interval 1 (ALLOW_TEARING is invalid with it),
++// so the generated frame occupies one refresh and the real frame the next;
++// the generated submission may wait, which is what paces the game.
++// Restore the real image before forwarding the caller's Present exactly
++// once. Other DXGI statuses/errors retain their result and reject history.
++inline constexpr unsigned paced_flags_mask=~0x200u;
+ template<class Present,class Restore,class Finish,class Generated,class Busy>
+-std::int32_t present_pair(bool generated,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
++std::int32_t present_pair(bool generated,bool paced,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
++ paced=paced&&generated;
+  if(generated){
+-  const auto hr=static_cast<std::int32_t>(present(0,flags|generated_do_not_wait));
++  const auto hr=static_cast<std::int32_t>(paced?present(1,flags&paced_flags_mask):present(0,flags|generated_do_not_wait));
+   if(hr!=0&&hr!=present_still_drawing){restore();finish(false);return hr;}
+   if(hr==0)generated_accepted();else generated_busy();
+   const auto restored=restore();
+@@ -44,6 +49,10 @@
+  // No sleeps or fixed-rate limiter. Game/driver VSync and engine limits still
+  // apply to this original submission. Back-to-back acceptance is not proof of
+  // distinct displayed frames: compositor drops and uneven cadence are possible.
+- auto hr=static_cast<std::int32_t>(present(sync,flags));finish(hr==0);return hr;
++ auto hr=static_cast<std::int32_t>(paced?present(1,flags&paced_flags_mask):present(sync,flags));finish(hr==0);return hr;
++}
++template<class Present,class Restore,class Finish,class Generated,class Busy>
++std::int32_t present_pair(bool generated,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
++ return present_pair(generated,false,sync,flags,present,restore,finish,generated_accepted,generated_busy);
+ }
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/shader_source.hpp work13/source/rtx20/shader_source.hpp
+--- Fix12/source/rtx20/shader_source.hpp	2026-09-26 23:26:08.745553462 +0000
++++ Fix13/source/rtx20/shader_source.hpp	2026-09-27 00:02:08.330148825 +0000
+@@ -84,7 +84,9 @@
+     }else if(d<secondDistance&&length(m-first)>2){second=m;secondDistance=d;}
+    }
+   }
+- if(secondDistance>=1e9)second=first;
++ // A second motion only matters if it crosses near this cell; distant ones
++ // (smooth zoom or rotation fields) would just defeat the fast path.
++ if(secondDistance>1.5*FlowBlock)second=first;
+  return float4(first,second);
+ }
+ float colorError(float3 a,float3 b) {
+@@ -238,66 +240,82 @@
+  r.fromPrevious.color=colorA+0.5*shift; r.fromPrevious.occluderAt=pb; r.fromPrevious.occluder=backward.other; r.fromPrevious.edge=!insideB;
+  return r;
+ }
++// Candidate k: 0-3 forward cells around a, 4-7 backward cells around b,
++// 8-15 the two projected motions of the four cells around p, 16 zero.
++float2 candidateMotion(int k,int2 cellA,int2 cellB,int2 cellP,int2 maximum) {
++ if(k<4)return cellFlow(cellA+int2(k&1,k>>1),false);
++ if(k<8)return float2(0,0)-cellFlow(cellB+int2(k&1,(k>>1)&1),true);
++ if(k<16){
++  float4 pair=Projected.Load(int3(clamp(cellP+int2(k&1,(k>>1)&1),int2(0,0),maximum),0));
++  return (k&4)?float2(pair.z,pair.w):float2(pair.x,pair.y);
++ }
++ return float2(0,0);
++}
+ float4 Synthesize(Vertex v) : SV_Target {
+  float2 p=v.position.xy-0.5, a=p, b=p;
+  [unroll] for(int i=0;i<3;++i){a=p-0.5*flowAt(a,false);b=p-0.5*flowAt(b,true);}
+  float4 original=Current.SampleLevel(LinearClamp,v.uv,0);
+  float2 forwardMotion=flowAt(a,false), backwardMotion=float2(0,0)-flowAt(b,true);
+  float2 reference=0.5*(forwardMotion+backwardMotion);
+- float3 shift=exposureShift(p,reference);
+- // Static overlay: textured detail identical in both frames although the
+- // flow here moves. HUD text drawn over a moving scene has this signature;
+- // world geometry does not (its flow follows it). Resolve keeps the real
+- // frame around clusters of these pixels, including antialiased glyph edges
+- // and shadows that are blended with the moving background.
+- float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
+- float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
+- float contrast=max(max(colorError(original.rgb,left),colorError(original.rgb,right)),
+-                    max(colorError(original.rgb,up),colorError(original.rgb,down)));
+- // Every surrounding block must move in both directions: pixels of a
+- // screen-fixed object (e.g. the character during a camera orbit) sit in
+- // blocks with zero motion somewhere nearby and are never flagged.
+- Probe still=probe(p,float2(0,0),true), stillForward=probe(p,float2(0,0),false);
+- // The local motion must also fail to explain the pixel, otherwise it is
+- // background that happens to match itself (flat or low-contrast areas).
+- float overlayFlag=(colorError(previousAt(p),original.rgb)<0.02&&contrast>0.12&&
+-                    min(still.support,stillForward.support)>1.5&&
+-                    explained(original.rgb,shift,p-reference)>0.08)?2:0;
+  int2 maximum=gridMaximum();
+  int2 cellA=int2(floor(toGrid(a))), cellB=int2(floor(toGrid(b)));
+  int2 cellP=int2(floor(toGrid(p)));
+  // Candidates: unmixed block vectors around both midpoint correspondences,
+  // motions projected through this cell, and zero. Per-pixel selection makes
+- // object edges follow image content instead of the flow grid.
++ // object edges follow image content instead of the flow grid. A first pass
++ // over the vectors alone (no colour samples) measures their spread.
++ float spread=0;
++ [loop] for(int s0=0;s0<16;++s0)spread=max(spread,length(candidateMotion(s0,cellA,cellB,cellP,maximum)-reference));
++ // Static overlay: textured detail identical in both frames although the
++ // flow here moves. HUD text drawn over a moving scene has this signature;
++ // world geometry does not (its flow follows it). Resolve keeps the real
++ // frame around clusters of these pixels, including antialiased glyph edges
++ // and shadows that are blended with the moving background. The cheap
++ // identity test runs first; the rest only for pixels that pass it.
++ float overlayFlag=0;
++ [branch] if(colorError(previousAt(p),original.rgb)<0.02){
++  float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
++  float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
++  float contrast=max(max(colorError(original.rgb,left),colorError(original.rgb,right)),
++                     max(colorError(original.rgb,up),colorError(original.rgb,down)));
++  // Every surrounding block must move in both directions: pixels of a
++  // screen-fixed object (e.g. the character during a camera orbit) sit in
++  // blocks with zero motion somewhere nearby and are never flagged.
++  Probe still=probe(p,float2(0,0),true), stillForward=probe(p,float2(0,0),false);
++  // The local motion must also fail to explain the pixel, otherwise it is
++  // background that happens to match itself (flat or low-contrast areas).
++  overlayFlag=(contrast>0.12&&min(still.support,stillForward.support)>1.5&&
++               nearestMatch(original.rgb,p-reference)>0.08)?2:0;
++ }
++ // Fast path for uniformly moving regions, most of a typical frame: every
++ // flow vector nearby agrees, the match is confident and the current pixel
++ // itself moves with that motion (no thin or new detail to protect). It is
++ // tried without the exposure estimate first; only if that fails is the
++ // estimate computed (lighting changes) and the test repeated.
++ float3 shift=float3(0,0,0);
++ [branch] if(spread<1){
++  Evaluation steady=evaluate(p,reference,reference,true,shift);
++  if(steady.confidence>0.95&&nearestMatch(original.rgb,p-reference)<0.08)return float4(steady.color,1+overlayFlag);
++ }
++ shift=exposureShift(p,reference);
++ [branch] if(spread<1&&max(abs(shift.x),max(abs(shift.y),abs(shift.z)))>0.005){
++  Evaluation steady=evaluate(p,reference,reference,true,shift);
++  if(steady.confidence>0.95&&explained(original.rgb,shift,p-reference)<0.08)return float4(steady.color,1+overlayFlag);
++ }
+  Ranking ranking;
+  ranking.m0=ranking.m1=ranking.m2=float2(0,0); ranking.c0=ranking.c1=ranking.c2=1e9;
+  // The best clearly deviating flow vector is always validated as well: a thin
+  // crossing object can rank below background duplicates after flow noise.
+  float2 deviating=float2(0,0); float deviatingCost=1e9;
+- float spread=0;
+  [loop] for(int k=0;k<17;++k){
+-  float2 m=float2(0,0);
+-  if(k<4)m=cellFlow(cellA+int2(k&1,k>>1),false);
+-  else if(k<8)m=float2(0,0)-cellFlow(cellB+int2(k&1,(k>>1)&1),true);
+-  else if(k<16){
+-   float4 pair=Projected.Load(int3(clamp(cellP+int2(k&1,(k>>1)&1),int2(0,0),maximum),0));
+-   m=(k&4)?float2(pair.z,pair.w):float2(pair.x,pair.y);
+-  }
++  float2 m=candidateMotion(k,cellA,cellB,cellP,maximum);
+   float2 h=0.5*m;
+-  if(k<16)spread=max(spread,length(m-reference));
+   if(length(m)<256&&inside(p-h)&&inside(p+h)){
+    float c=colorError(previousAt(p-h)+shift,currentAt(p+h));
+    ranking=rank(ranking,m,c);
+    if(k<16&&length(m-reference)>3&&c<deviatingCost){deviating=m;deviatingCost=c;}
+   }
+  }
+- // Fast path for uniformly moving regions, most of a typical frame: every
+- // flow vector nearby agrees, the match is confident and the current pixel
+- // itself moves with that motion (no thin or new detail to protect).
+- [branch] if(spread<1){
+-  Evaluation steady=evaluate(p,reference,reference,true,shift);
+-  if(steady.confidence>0.95&&explained(original.rgb,shift,p-reference)<0.05)return float4(steady.color,1+overlayFlag);
+- }
+  float bestScore=4, bestConfidence=0; float3 bestColor=original.rgb;
+  Side fromCurrent, fromPrevious;
+  fromCurrent.score=fromPrevious.score=0; fromCurrent.color=fromPrevious.color=original.rgb;
+@@ -349,6 +367,8 @@
+  }
+  // Thin detail present at this pixel in both frames (within a pixel) but
+  // replaced by a background match: no flow describes it, so keep it too.
++ float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
++ float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
+  float thin=max(smoothstep(0.08,0.16,min(colorError(original.rgb,left),colorError(original.rgb,right))),
+                 smoothstep(0.08,0.16,min(colorError(original.rgb,up),colorError(original.rgb,down))));
+  keep=max(keep,(1-smoothstep(0.03,0.08,here))*smoothstep(0.1,0.2,colorError(color,original.rgb))*thin);
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/shaders.hlsl work13/source/rtx20/shaders.hlsl
+--- Fix12/source/rtx20/shaders.hlsl	2026-09-26 23:21:37.567265563 +0000
++++ Fix13/source/rtx20/shaders.hlsl	2026-09-26 23:41:29.567517058 +0000
+@@ -82,7 +82,9 @@
+     }else if(d<secondDistance&&length(m-first)>2){second=m;secondDistance=d;}
+    }
+   }
+- if(secondDistance>=1e9)second=first;
++ // A second motion only matters if it crosses near this cell; distant ones
++ // (smooth zoom or rotation fields) would just defeat the fast path.
++ if(secondDistance>1.5*FlowBlock)second=first;
+  return float4(first,second);
+ }
+ float colorError(float3 a,float3 b) {
+@@ -236,66 +238,82 @@
+  r.fromPrevious.color=colorA+0.5*shift; r.fromPrevious.occluderAt=pb; r.fromPrevious.occluder=backward.other; r.fromPrevious.edge=!insideB;
+  return r;
+ }
++// Candidate k: 0-3 forward cells around a, 4-7 backward cells around b,
++// 8-15 the two projected motions of the four cells around p, 16 zero.
++float2 candidateMotion(int k,int2 cellA,int2 cellB,int2 cellP,int2 maximum) {
++ if(k<4)return cellFlow(cellA+int2(k&1,k>>1),false);
++ if(k<8)return float2(0,0)-cellFlow(cellB+int2(k&1,(k>>1)&1),true);
++ if(k<16){
++  float4 pair=Projected.Load(int3(clamp(cellP+int2(k&1,(k>>1)&1),int2(0,0),maximum),0));
++  return (k&4)?float2(pair.z,pair.w):float2(pair.x,pair.y);
++ }
++ return float2(0,0);
++}
+ float4 Synthesize(Vertex v) : SV_Target {
+  float2 p=v.position.xy-0.5, a=p, b=p;
+  [unroll] for(int i=0;i<3;++i){a=p-0.5*flowAt(a,false);b=p-0.5*flowAt(b,true);}
+  float4 original=Current.SampleLevel(LinearClamp,v.uv,0);
+  float2 forwardMotion=flowAt(a,false), backwardMotion=float2(0,0)-flowAt(b,true);
+  float2 reference=0.5*(forwardMotion+backwardMotion);
+- float3 shift=exposureShift(p,reference);
+- // Static overlay: textured detail identical in both frames although the
+- // flow here moves. HUD text drawn over a moving scene has this signature;
+- // world geometry does not (its flow follows it). Resolve keeps the real
+- // frame around clusters of these pixels, including antialiased glyph edges
+- // and shadows that are blended with the moving background.
+- float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
+- float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
+- float contrast=max(max(colorError(original.rgb,left),colorError(original.rgb,right)),
+-                    max(colorError(original.rgb,up),colorError(original.rgb,down)));
+- // Every surrounding block must move in both directions: pixels of a
+- // screen-fixed object (e.g. the character during a camera orbit) sit in
+- // blocks with zero motion somewhere nearby and are never flagged.
+- Probe still=probe(p,float2(0,0),true), stillForward=probe(p,float2(0,0),false);
+- // The local motion must also fail to explain the pixel, otherwise it is
+- // background that happens to match itself (flat or low-contrast areas).
+- float overlayFlag=(colorError(previousAt(p),original.rgb)<0.02&&contrast>0.12&&
+-                    min(still.support,stillForward.support)>1.5&&
+-                    explained(original.rgb,shift,p-reference)>0.08)?2:0;
+  int2 maximum=gridMaximum();
+  int2 cellA=int2(floor(toGrid(a))), cellB=int2(floor(toGrid(b)));
+  int2 cellP=int2(floor(toGrid(p)));
+  // Candidates: unmixed block vectors around both midpoint correspondences,
+  // motions projected through this cell, and zero. Per-pixel selection makes
+- // object edges follow image content instead of the flow grid.
++ // object edges follow image content instead of the flow grid. A first pass
++ // over the vectors alone (no colour samples) measures their spread.
++ float spread=0;
++ [loop] for(int s0=0;s0<16;++s0)spread=max(spread,length(candidateMotion(s0,cellA,cellB,cellP,maximum)-reference));
++ // Static overlay: textured detail identical in both frames although the
++ // flow here moves. HUD text drawn over a moving scene has this signature;
++ // world geometry does not (its flow follows it). Resolve keeps the real
++ // frame around clusters of these pixels, including antialiased glyph edges
++ // and shadows that are blended with the moving background. The cheap
++ // identity test runs first; the rest only for pixels that pass it.
++ float overlayFlag=0;
++ [branch] if(colorError(previousAt(p),original.rgb)<0.02){
++  float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
++  float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
++  float contrast=max(max(colorError(original.rgb,left),colorError(original.rgb,right)),
++                     max(colorError(original.rgb,up),colorError(original.rgb,down)));
++  // Every surrounding block must move in both directions: pixels of a
++  // screen-fixed object (e.g. the character during a camera orbit) sit in
++  // blocks with zero motion somewhere nearby and are never flagged.
++  Probe still=probe(p,float2(0,0),true), stillForward=probe(p,float2(0,0),false);
++  // The local motion must also fail to explain the pixel, otherwise it is
++  // background that happens to match itself (flat or low-contrast areas).
++  overlayFlag=(contrast>0.12&&min(still.support,stillForward.support)>1.5&&
++               nearestMatch(original.rgb,p-reference)>0.08)?2:0;
++ }
++ // Fast path for uniformly moving regions, most of a typical frame: every
++ // flow vector nearby agrees, the match is confident and the current pixel
++ // itself moves with that motion (no thin or new detail to protect). It is
++ // tried without the exposure estimate first; only if that fails is the
++ // estimate computed (lighting changes) and the test repeated.
++ float3 shift=float3(0,0,0);
++ [branch] if(spread<1){
++  Evaluation steady=evaluate(p,reference,reference,true,shift);
++  if(steady.confidence>0.95&&nearestMatch(original.rgb,p-reference)<0.08)return float4(steady.color,1+overlayFlag);
++ }
++ shift=exposureShift(p,reference);
++ [branch] if(spread<1&&max(abs(shift.x),max(abs(shift.y),abs(shift.z)))>0.005){
++  Evaluation steady=evaluate(p,reference,reference,true,shift);
++  if(steady.confidence>0.95&&explained(original.rgb,shift,p-reference)<0.08)return float4(steady.color,1+overlayFlag);
++ }
+  Ranking ranking;
+  ranking.m0=ranking.m1=ranking.m2=float2(0,0); ranking.c0=ranking.c1=ranking.c2=1e9;
+  // The best clearly deviating flow vector is always validated as well: a thin
+  // crossing object can rank below background duplicates after flow noise.
+  float2 deviating=float2(0,0); float deviatingCost=1e9;
+- float spread=0;
+  [loop] for(int k=0;k<17;++k){
+-  float2 m=float2(0,0);
+-  if(k<4)m=cellFlow(cellA+int2(k&1,k>>1),false);
+-  else if(k<8)m=float2(0,0)-cellFlow(cellB+int2(k&1,(k>>1)&1),true);
+-  else if(k<16){
+-   float4 pair=Projected.Load(int3(clamp(cellP+int2(k&1,(k>>1)&1),int2(0,0),maximum),0));
+-   m=(k&4)?float2(pair.z,pair.w):float2(pair.x,pair.y);
+-  }
++  float2 m=candidateMotion(k,cellA,cellB,cellP,maximum);
+   float2 h=0.5*m;
+-  if(k<16)spread=max(spread,length(m-reference));
+   if(length(m)<256&&inside(p-h)&&inside(p+h)){
+    float c=colorError(previousAt(p-h)+shift,currentAt(p+h));
+    ranking=rank(ranking,m,c);
+    if(k<16&&length(m-reference)>3&&c<deviatingCost){deviating=m;deviatingCost=c;}
+   }
+  }
+- // Fast path for uniformly moving regions, most of a typical frame: every
+- // flow vector nearby agrees, the match is confident and the current pixel
+- // itself moves with that motion (no thin or new detail to protect).
+- [branch] if(spread<1){
+-  Evaluation steady=evaluate(p,reference,reference,true,shift);
+-  if(steady.confidence>0.95&&explained(original.rgb,shift,p-reference)<0.05)return float4(steady.color,1+overlayFlag);
+- }
+  float bestScore=4, bestConfidence=0; float3 bestColor=original.rgb;
+  Side fromCurrent, fromPrevious;
+  fromCurrent.score=fromPrevious.score=0; fromCurrent.color=fromPrevious.color=original.rgb;
+@@ -347,6 +365,8 @@
+  }
+  // Thin detail present at this pixel in both frames (within a pixel) but
+  // replaced by a background match: no flow describes it, so keep it too.
++ float3 left=currentAt(p-float2(1,0)), right=currentAt(p+float2(1,0));
++ float3 up=currentAt(p-float2(0,1)), down=currentAt(p+float2(0,1));
+  float thin=max(smoothstep(0.08,0.16,min(colorError(original.rgb,left),colorError(original.rgb,right))),
+                 smoothstep(0.08,0.16,min(colorError(original.rgb,up),colorError(original.rgb,down))));
+  keep=max(keep,(1-smoothstep(0.03,0.08,here))*smoothstep(0.1,0.2,colorError(color,original.rgb))*thin);
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/smoke_test.cpp work13/source/rtx20/smoke_test.cpp
+--- Fix12/source/rtx20/smoke_test.cpp	2026-09-26 20:00:08.000000000 +0000
++++ Fix13/source/rtx20/smoke_test.cpp	2026-09-27 00:00:13.406884808 +0000
+@@ -12,6 +12,9 @@
+ int main(){
+  SetProcessDPIAware();
+  wchar_t file[32768]{};GetModuleFileNameW(nullptr,file,32768);std::wstring dir(file);dir.resize(dir.find_last_of(L"\\/")+1);
++ // The test scene runs far above the display refresh; keep generation active
++ // (the runtime otherwise pauses it there) unless the user chose a value.
++ if(!GetEnvironmentVariableW(L"SM86_GENERATE_ABOVE_REFRESH",nullptr,0))SetEnvironmentVariableW(L"SM86_GENERATE_ABOVE_REFRESH",L"1");
+  auto module=LoadLibraryExW((dir+L"new.asi").c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
+  using Entry=void(*)();using Status=unsigned(WINAPI*)(char*,unsigned);
+  auto start=module?reinterpret_cast<Entry>(GetProcAddress(module,"InitializeASI")):nullptr;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/validate_shaders.py work13/source/rtx20/validate_shaders.py
+--- Fix12/source/rtx20/validate_shaders.py	2026-09-26 23:25:06.714651527 +0000
++++ Fix13/source/rtx20/validate_shaders.py	2026-09-26 23:58:16.338289605 +0000
+@@ -10,5 +10,5 @@
+   result=subprocess.run(cmd,capture_output=True,text=True)
+   if result.returncode:print(result.stdout,result.stderr);result.check_returncode()
+   results.append({'entry':entry,'result':'PASS','output':result.stdout.strip()});print('PASS HLSL syntax:',entry,flush=True)
+-report={'shader_sha256':hashlib.sha256((src/'shaders.hlsl').read_bytes()).hexdigest(),'syntax_compiler':subprocess.check_output([a.glslang,'--version'],text=True).splitlines()[0]+'; HLSL -> SPIR-V syntax only, runtime uses D3DCompiler47 -> DXBC','results':results,'cuda_abi':'Inherited CUDA ABI header unchanged from supplied Fix7; previous ABI assertions not rerun','cuda_header_sha256':hashlib.sha256((src/'include/cuda.h').read_bytes()).hexdigest(),'windows_shader_execution':False,'GPU_tested':False,'validation_origin':'Fix12 quality test, current HLSL source'}
++report={'shader_sha256':hashlib.sha256((src/'shaders.hlsl').read_bytes()).hexdigest(),'syntax_compiler':subprocess.check_output([a.glslang,'--version'],text=True).splitlines()[0]+'; HLSL -> SPIR-V syntax only, runtime uses D3DCompiler47 -> DXBC','results':results,'cuda_abi':'Inherited CUDA ABI header unchanged from supplied Fix7; previous ABI assertions not rerun','cuda_header_sha256':hashlib.sha256((src/'include/cuda.h').read_bytes()).hexdigest(),'windows_shader_execution':False,'GPU_tested':False,'validation_origin':'Fix13 pacing test, current HLSL source'}
+ (root/'validation/shader-and-abi.json').write_text(json.dumps(report,indent=2)+'\n')
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/rtx20/verify.py work13/source/rtx20/verify.py
+--- Fix12/source/rtx20/verify.py	2026-09-26 23:25:06.713956884 +0000
++++ Fix13/source/rtx20/verify.py	2026-09-26 23:58:07.259624597 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix12-quality-test'
++assert runtime['version']=='2.8.4-rtx20-dx12-preview2-fix13-pacing-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -40,6 +40,7 @@
+ assert (root/'FIX10_NOTES.md').is_file()
+ assert (root/'FIX11_NOTES.md').is_file()
+ assert (root/'FIX12_NOTES.md').is_file()
++assert (root/'FIX13_NOTES.md').is_file()
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+@@ -72,7 +73,7 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.4-rtx20-dx12-preview2-fix12-quality-test' in pe.data
++ assert b'2.8.4-rtx20-dx12-preview2-fix13-pacing-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+@@ -83,7 +84,7 @@
+  assert b'artifact_guard=conservative_v1' not in pe.data
+  assert b'MEDIUM preset' in pe.data
+  assert (root/'source/rtx20/shaders.hlsl').read_bytes() in pe.data
+- assert b'generated_immediate_nonblocking_original_game' in pe.data
++ assert b'generated_paired_refresh_or_immediate' in pe.data
+  assert b'generated_present_queue_busy' in pe.data
+  assert b'generated_vsync_original_game' not in pe.data
+  assert b'[rtx20-dx12] Same-adapter D3D11/CUDA transfer ready' in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work12/source/setup/payload_hashes.hpp work13/source/setup/payload_hashes.hpp
+--- Fix12/source/setup/payload_hashes.hpp	2026-09-26 23:26:54.247952691 +0000
++++ Fix13/source/setup/payload_hashes.hpp	2026-09-27 00:02:52.269001801 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "d287005b62eba4247a9a0d1b5b06d9d4dca3207253212e148282c4376bdf302a";
+-inline constexpr const char motion[] = "584ad0d64f2418f03128f32426ace5ee9fb9c3f0b18442e349a61f451b499cea";
++inline constexpr const char native_proxy[] = "30619f709dd4be8954718d582467c2c0e0613fba9aacf46e06c0caf106ac6995";
++inline constexpr const char motion[] = "1eaec77d7ad60444549f1fa23831bc0b10f54de21a579de63b14f90a59a0f195";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";

@@ -1,6 +1,22 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 12 — quality test (current)
+## Fix 13 — pacing and performance test (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix13-Pacing-Test.zip`: everything in
+Fix12, plus:
+
+- generated and real frames shown on consecutive refreshes instead of back to
+  back;
+- generation paused while the game already reaches the display refresh rate;
+- a synthesis pass with about 35% fewer texture fetches per pixel.
+
+Files:
+
+- `FIX13_NOTES.md`: why log 37 did not feel smoother, changes, settings, limits.
+- `nvsmooth30.example.ini`: adds `Pacing=on|off` and `GenerateAboveRefresh=0|1`.
+- `DX12-Preview2-Fix13.patch`: source and document difference from Fix12.
+
+## Fix 12 — quality test (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix12-Quality-Test.zip`: everything in
 Fix11 plus exposure-compensated matching (auto-exposure, flicker, moving
