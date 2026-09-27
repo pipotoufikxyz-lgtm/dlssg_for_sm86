@@ -1,6 +1,26 @@
 # SmoothMotion RTX20 builds (Turing / RTX 20-series)
 
-## Fix 13 — pacing and performance test (current)
+## Fix 14 — smooth presentation, quality and glass UI test (current)
+
+`SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix14-Smooth-Test.zip`: everything in
+Fix13, plus:
+
+- each generated frame shown for half a real-frame interval before the real
+  frame, so 30 to 60 looks like 60 (timed or pipelined, chosen automatically);
+- about half the artifacts of Fix13 in simulation: validated occlusion fill,
+  exposure gain model, thin objects and lines over flat background, sharp
+  resampling, and the SLOW optical-flow preset below 40 FPS;
+- a liquid-glass Manager interface.
+
+Files:
+
+- `FIX14_NOTES.md`: log 38 and video analysis, changes, settings, limits.
+- `UI_FIX14_PREVIEW.png`: Manager before and after (rendered under Wine).
+- `nvsmooth30.example.ini`: `Pacing=auto|low_latency|smooth|vblank|off`,
+  `FlowQuality=auto|high|medium`.
+- `DX12-Preview2-Fix14.patch`: source and document difference from Fix13.
+
+## Fix 13 — pacing and performance test (previous)
 
 `SmoothMotion-2.8.4-RTX20-DX12-Preview2-Fix13-Pacing-Test.zip`: everything in
 Fix12, plus:
