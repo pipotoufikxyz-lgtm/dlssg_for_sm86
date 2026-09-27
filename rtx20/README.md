@@ -1,6 +1,19 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 20 — GPU-bound games (current)
+## Fix 21 — image quality: less ghosting (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix21-Test.zip`: everything in
+Fix20, with better generated frames on RTX 30 and RTX 20 (same synthesis).
+Measured on real Witcher 3 frames against the real in-between frame, wrong
+pixels went from 17,267 to 13,213 (roofs and chimney −86%). Mean PSNR rose
+from 29.70 to 30.30 dB. Thin objects over flat sky no longer vanish or
+flicker, and unexplained pixels follow the motion instead of ghosting ahead.
+
+- `FIX21_NOTES.md`: method, results per crop, changes, limits.
+- `FIX21_COMPARE.png`: truth / Fix20 / Fix21, with wrong pixels in red.
+- `DX12-Preview2-Fix21.patch`: source and document difference from Fix20.
+
+## Fix 20 — GPU-bound games (previous)
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix20-Test.zip`: everything in
 Fix19. `nvsmooth30_46.log` (God of War, RTX 2060, uncapped 70 FPS) showed the

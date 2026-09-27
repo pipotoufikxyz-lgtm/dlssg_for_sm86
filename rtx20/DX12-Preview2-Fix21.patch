@@ -1,0 +1,423 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/BUILD.md Fix21/BUILD.md
+--- Fix20/BUILD.md	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/BUILD.md	2026-09-27 22:57:22.000000000 +0000
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix20-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix21-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,7 +42,7 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix20
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix21
+ were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/CHANGELOG_RTX20.md Fix21/CHANGELOG_RTX20.md
+--- Fix20/CHANGELOG_RTX20.md	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/CHANGELOG_RTX20.md	2026-09-27 22:57:22.000000000 +0000
+@@ -1,3 +1,11 @@
++# Fix21 image-quality test
++
++See FIX21_NOTES.md. Resolve's stationary (UI) override needs local detail, so
++thin objects crossing flat sky are no longer replaced by the next frame;
++unexplained pixels fall back to the midpoint along the local motion instead
++of the unwarped next frame. Measured on real Witcher 3 frames (13,213 vs
++17,267 wrong pixels). New shader group (22). Exact Fix20 upgrades recognized.
++
+ # Fix20 GPU-bound test
+ 
+ See FIX20_NOTES.md. DX11 visibility wait skipped while GPU-bound (no GPU
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/FIX21_NOTES.md Fix21/FIX21_NOTES.md
+--- Fix20/FIX21_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix21/FIX21_NOTES.md	2026-09-27 22:57:22.000000000 +0000
+@@ -0,0 +1,99 @@
++# Fix 21 — less ghosting and fewer wrong pixels (RTX 20 and RTX 30)
++
++Runtime version: `2.8.4-rtx20-rtx30-dx12-preview2-fix21-test`.
++
++Fix21 improves the generated frames themselves. RTX 30 and RTX 20 use the
++same synthesis, so both cards get it. Nothing else changes: pacing, the
++performance guard, the GPU budget and settings are the same as Fix20. This is
++a test build: it has not run on Windows or a GPU here.
++
++## How it was measured: real game frames
++
++- **Frames.** They come from the Witcher 3 recording (1080p, 30 to 60). In
++  that recording every other frame is real. Frames 113–125 are used, where
++  the real/generated order was verified.
++- **Method.** For each triplet of real frames n-2, n and n+2, frame n is
++  generated from n-2 and n+2, then compared with the real frame n.
++  - This runs the production shader in the CPU shader model.
++  - Optical flow comes from OpenCV DIS, reduced to NVOF's 4x4 grid. This
++    stands in for NVIDIA's hardware flow.
++- **Crops.** 5 triplets × 5 crops = 25 cases (480x320 each):
++  - `edge`: building edge against sky
++  - `roofs`: roofs and chimney
++  - `right`: right-hand buildings
++  - `hud`: minimap, coins, quest text over clouds
++  - `ground`
++- **Metric.** "Wrong pixels" are output colours that do not appear anywhere
++  within ±2 pixels in the real frame. Ghosts, pasted blocks and missing
++  pieces count; a small overall shift does not.
++
++| Crop | Fix20 | Fix21 |
++|---|---|---|
++| Building edge | 5,373 | 5,013 |
++| Roofs / chimney | 2,275 | 320 (−86%) |
++| Right buildings | 1,372 | 1,118 |
++| HUD over clouds | 7,892 | 6,681 |
++| Ground | 355 | 81 |
++| **Total wrong pixels** | **17,267** | **13,213 (−23%)** |
++| Mean PSNR | 29.70 dB | 30.30 dB |
++| Mean abs. error | 0.0159 | 0.0155 |
++
++`FIX21_COMPARE.png` shows three cases: the real frame, then Fix20 and Fix21
++with wrong pixels in red.
++
++## What changed
++
++1. **Static-looking flat areas no longer paste the next frame.**
++   - Resolve keeps the real frame wherever both real frames are identical at
++     a pixel, to protect HUD and UI. Clear sky and flat walls are also
++     identical in both frames. When a thin object (a chimney, pole or window
++     frame) passes over them in between, Fix20 pasted sky over it. The
++     object then vanished or flickered in every generated frame.
++   - This override now also needs local detail, which UI has and flat sky
++     does not, or a result that is close to the real frame anyway.
++   - This was the biggest source of wrong pixels in the Witcher frames.
++2. **Unexplained pixels follow the motion instead of lagging behind.**
++   - Where no motion interpretation fully validated, Fix20 blended toward
++     the unwarped next frame. That places moving content half a step ahead:
++     a ghost or double edge.
++   - It now falls back to the midpoint along the local motion when the scene
++     clearly moves (at least 1 pixel) and both frames match there as a
++     patch.
++   - This fallback is not used at crosshairs and HUD, which keep their Fix19
++     protection.
++
++Costs about 4 extra texture reads per pixel in Resolve, plus a patch match
++only on pixels that were not fully explained. The GPU budget still applies.
++
++## Tests
++
++- New shader behaviour group "thin object crossing flat stationary-looking
++  sky":
++  - A chimney pans 16 pixels over nearly flat sky.
++  - Missing chimney pixels: Fix20 272 of 408; Fix21 passes (at most 2%).
++- All 21 earlier groups pass with the same numbers as Fix20. That includes
++  the crosshair and HUD groups, the newly appearing object, and the roof over
++  flat sky. There are 22 groups in total, run in optimized and ASan/UBSan
++  builds.
++- All nine HLSL entry points compile with glslang 15.1.0.
++
++## Limits
++
++- The flow here is a stand-in for NVOF. On your card, NVIDIA's hardware
++  flow is used, so absolute numbers will differ. The direction of the change
++  should hold.
++- Remaining wrong pixels are mostly at:
++  - the minimap rim (the minimap content rotates, which no motion vector
++    describes);
++  - HUD panel edges over moving clouds;
++  - one-sided fills along building edges.
++- Very thin details (under about 2 pixels) that move fast can still soften.
++
++## Install and check
++
++1. Replace the previous file with `Manual/Version/version.dll` or
++   `Manual/ASI_Only/new.asi`, or use the Manager. It recognizes exact Fix20
++   binaries.
++2. The log must show the version above.
++3. Compare slow camera pans across rooftops, poles and thin objects over sky
++   with Fix20. Also check that the crosshair and HUD still stay steady.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/MANUAL_INSTALL.md Fix21/MANUAL_INSTALL.md
+--- Fix20/MANUAL_INSTALL.md	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/MANUAL_INSTALL.md	2026-09-27 22:57:22.000000000 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix20-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX20_NOTES.md (GPU-bound games), FIX19_NOTES.md (crosshair/HUD), FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix21-test` and `artifact_guard=occlusion_aware_v6` in the log. See FIX21_NOTES.md (image quality), FIX20_NOTES.md (GPU-bound games), FIX19_NOTES.md (crosshair/HUD), FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/README.md Fix21/README.md
+--- Fix20/README.md	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/README.md	2026-09-27 22:57:22.000000000 +0000
+@@ -1,4 +1,10 @@
+-# SmoothMotion 2.8.4 RTX20/RTX30 Fix 20 — GPU-bound games
++# SmoothMotion 2.8.4 RTX20/RTX30 Fix 21 — image quality
++
++Fix21 cuts wrong pixels in generated frames by 23% on real Witcher 3 frames
++(roofs and chimneys −86%): thin objects over flat sky no longer vanish or
++flicker, and unexplained pixels follow the motion instead of ghosting ahead.
++RTX 20 and RTX 30 share this synthesis. See `FIX21_NOTES.md` and
++`FIX21_COMPARE.png`.
+ 
+ Fix20 stops frame generation from halving the game's own frame rate in
+ uncapped, GPU-bound games (God of War on an RTX 2060: native 70 FPS fell to
+@@ -55,7 +61,7 @@
+ 3. Use DirectX 11 or DirectX 12 (windowed, borderless or exclusive fullscreen), SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix20-test`,
++4. Confirm `2.8.4-rtx20-rtx30-dx12-preview2-fix21-test`,
+    `artifact_guard=occlusion_aware_v6`, a `GPU budget:`, a `presentation=` and a `spacing:` line in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/VALIDATION.md Fix21/VALIDATION.md
+--- Fix20/VALIDATION.md	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/VALIDATION.md	2026-09-27 22:57:22.000000000 +0000
+@@ -1,6 +1,10 @@
+-# Fix20 validation and limits
++# Fix21 validation and limits
+ 
+-All results below refer to the current Fix20 sources. Fix20 changes presentation policy
++All results below refer to the current Fix21 sources. Fix21 changes the Synthesize and
++Resolve shaders only. A new thin-object-over-flat-sky group (22 groups) passes; the
++21 earlier groups give the same numbers as Fix20. On 25 real Witcher 3 frame crops
++(DIS flow standing in for NVOF, see FIX21_NOTES.md) wrong pixels fell from 17,267 to
++13,213 and mean PSNR rose from 29.70 to 30.30 dB. Nothing has run on Windows or a GPU. Fix20 changes presentation policy
+ and the DX11 visibility wait only (policy tests: God of War model, visibility wait,
+ warm-up samples); shaders are unchanged from Fix19. Fix19 adds the OverlayMask and
+ OverlayGrow passes (nine HLSL entries) and a crosshair behaviour group (21 groups). Fix18 only widens the GPU check
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/manager/helper_identity.hpp Fix21/source/manager/helper_identity.hpp
+--- Fix20/source/manager/helper_identity.hpp	2026-09-27 22:06:40.000000000 +0000
++++ Fix21/source/manager/helper_identity.hpp	2026-09-27 22:49:48.000000000 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="484c9755697bb79335858f9dc3c43b4d65a0dd30c70d9c52e8506be92a377e38";
+-inline constexpr char collector[]="49d2f4bcb6d02100515248dd33ca605be35eeb8fb98e4fa779c73a085c1939cd";
++inline constexpr char installer[]="2468e6a82c18c1902a71252b58e050ab8383fa76ce5f3eaba2335fdae6b847c0";
++inline constexpr char collector[]="9bf4b11ab83ff0f5aad0b3e076e10c5e51ecb369647c115919bfc531bd01c457";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/manager/manager.cpp Fix21/source/manager/manager.cpp
+--- Fix20/source/manager/manager.cpp	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/source/manager/manager.cpp	2026-09-27 22:48:30.000000000 +0000
+@@ -473,7 +473,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-rtx30-dx12-preview2-fix20-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.4-rtx20-rtx30-dx12-preview2-fix21-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/motion/identity.hpp Fix21/source/motion/identity.hpp
+--- Fix20/source/motion/identity.hpp	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/source/motion/identity.hpp	2026-09-27 22:48:30.000000000 +0000
+@@ -119,11 +119,14 @@
+ // Exact released Fix18 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix18Native="3fad291db8a552ef8706fa63d35c13bd018306726f282cd7bb535beb0c4da268";
+ inline constexpr const char* releaseRTX20Preview2Fix18NativeProxy="0c3d60c3fde1dab7b3c43c1e4f0611a60aa093ae77b7b118d457b9991975a7ce";
++// Exact released Fix20 bytes retained for managed upgrades.
++inline constexpr const char* releaseRTX20Preview2Fix20Native="e2bcc64053e7233f65ba66a9c14656ea191f8a7ce0d74e4f6b4b36f9978e5b93";
++inline constexpr const char* releaseRTX20Preview2Fix20NativeProxy="b5ab6a5bd0a2796b686ce8bee09cd33f3038e285da4764babf28bb4f55fc19a0";
+ // Exact released Fix19 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix19Native="d01ce8644ceacd5d0c2fbbc4c97f7739e5c2af69e2c8e37fbdcefbf3d9787bfe";
+ inline constexpr const char* releaseRTX20Preview2Fix19NativeProxy="f0ca70280b6e9e9b448e81c040e27fad266af399e03bf5e19cc28b0f489cf07e";
+-inline constexpr std::array<const char*,39> previousNativeProxies{{releaseRTX20Preview2Fix19NativeProxy,releaseRTX20Preview2Fix18NativeProxy,releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,49> previousPlugins{{releaseRTX20Preview2Fix19Native,releaseRTX20Preview2Fix18Native,releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++inline constexpr std::array<const char*,40> previousNativeProxies{{releaseRTX20Preview2Fix20NativeProxy,releaseRTX20Preview2Fix19NativeProxy,releaseRTX20Preview2Fix18NativeProxy,releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,50> previousPlugins{{releaseRTX20Preview2Fix20Native,releaseRTX20Preview2Fix19Native,releaseRTX20Preview2Fix18Native,releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/package_release.py Fix21/source/package_release.py
+--- Fix20/source/package_release.py	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/source/package_release.py	2026-09-27 22:48:30.000000000 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix20-Test'
++archive_root='SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix21-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/rtx20/build.py Fix21/source/rtx20/build.py
+--- Fix20/source/rtx20/build.py	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/source/rtx20/build.py	2026-09-27 22:48:30.000000000 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-rtx30-dx12-preview2-fix20-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.4-rtx20-rtx30-dx12-preview2-fix21-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.4-rtx20-rtx30-dx12-preview2-fix20-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.4-rtx20-rtx30-dx12-preview2-fix21-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/rtx20/shader_regression_test.cpp Fix21/source/rtx20/shader_regression_test.cpp
+--- Fix20/source/rtx20/shader_regression_test.cpp	2026-09-27 21:44:58.000000000 +0000
++++ Fix21/source/rtx20/shader_regression_test.cpp	2026-09-27 22:47:28.000000000 +0000
+@@ -413,6 +413,28 @@
+  }
+  pass("flat sky ahead of a moving roofline stays sky");
+  {
++  // Fix21 (Witcher 3 frames): a thin chimney pans 16 pixels per real frame
++  // over nearly flat sky. At its midpoint position both real frames show the
++  // same sky, which Fix20's Resolve took for screen-stationary UI and pasted
++  // the current frame's sky over the chimney. It must appear where it is.
++  setup(128,96);Texture2D<float4> truth;truth.reset(128,96);
++  const float4 skyBase{0.62f,0.78f,0.92f,0.37f};
++  auto sky=[&](float x,float y){return lerp(skyBase,pattern(x,y),0.03f);};
++  auto chimney=[](float x,float y){return x>=40&&x<46&&y>10&&y<86;};
++  auto frame=[&](float x,float y,float t){float4 sum(0);
++   for(int j=0;j<3;++j)for(int i=0;i<3;++i){float sx=x+(i+0.5f)/3-16*t,sy=y+(j+0.5f)/3;
++    sum=sum+(chimney(sx,sy)?texture2(sx,sy):sky(sx,sy));}
++   return sum/9.f;};
++  for(int y=0;y<96;++y)for(int x=0;x<128;++x){Previous.at(x,y)=frame(x,y,0);Current.at(x,y)=frame(x,y,1);truth.at(x,y)=frame(x,y,0.5f);}
++  for(auto& v:Forward.pixels)v=stored({16,0});
++  for(auto& v:Backward.pixels)v=stored({-16,0});
++  render();unsigned count=0,wrong=0;
++  for(int y=14;y<82;++y)for(int x=48;x<54;++x){++count;wrong+=error(output.at(x,y),truth.at(x,y))>0.12f;}
++  std::cout<<"thin chimney over flat sky: missing chimney pixels "<<wrong<<'/'<<count<<'\n';
++  assert(wrong*50<=count);
++ }
++ pass("thin object crossing flat stationary-looking sky");
++ {
+   // Fix15 MSAA write-back: Blit copies bytes; BlitSrgb returns linear values
+   // that an sRGB render target encodes back to the same bytes.
+   setup(16,16);
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/rtx20/shader_source.hpp Fix21/source/rtx20/shader_source.hpp
+--- Fix20/source/rtx20/shader_source.hpp	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/source/rtx20/shader_source.hpp	2026-09-27 22:48:44.000000000 +0000
+@@ -523,8 +523,22 @@
+   flatColor=0.5*(previousAt(p-0.5*flatMotion)*sqrt(gain)+currentAt(p+0.5*flatMotion)/sqrt(gain));
+   weightF=(1-weightB-weightO)*bestFlat*smoothstep(0.08,0.16,colorError(original.rgb,flatColor));
+  }
+- float valid=weightB+weightO+weightF;
+- float3 color=valid>0.001?(weightB*bestColor+weightO*oneColor+weightF*flatColor)/valid:original.rgb;
++ // Fix21: what is still unexplained falls back to the midpoint along the
++ // local motion instead of the unwarped current frame (misplaced by half the
++ // motion), where the scene clearly moves and both frames roughly agree.
++ float weightR=0; float3 refColor=original.rgb;
++ // Not at static overlays (crosshair, HUD): Resolve keeps those.
++ float nearOverlay=OverlayNear.Load(int3(int2(floor(v.position.xy)),0));
++ [branch] if(weightB+weightO+weightF<0.999&&length(reference)>=1&&nearOverlay<0.5){
++  float2 hr=0.5*reference;
++  [branch] if(inside(p-hr)&&inside(p+hr)){
++   float3 ra=previousAt(p-hr)*sqrt(gain), rb=currentAt(p+hr)/sqrt(gain);
++   refColor=0.5*(ra+rb);
++   weightR=(1-weightB-weightO-weightF)*smoothstep(1.0,3.0,length(reference))*(1-smoothstep(0.1,0.25,matchCost(p,hr,gain)));
++  }
++ }
++ float valid=weightB+weightO+weightF+weightR;
++ float3 color=valid>0.001?(weightB*bestColor+weightO*oneColor+weightF*flatColor+weightR*refColor)/valid:original.rgb;
+  // Current content without any correspondence (a new object, or detail too
+  // thin for the flow grid) stays where the real frame shows it instead of
+  // breaking into fragments. Each unmixed block vector is tested separately;
+@@ -598,7 +612,15 @@
+                   min(stationaryError(v.uv+float2(0,1)*InvImageSize),
+                       stationaryError(v.uv-float2(0,1)*InvImageSize)));
+  float stationary=1-smoothstep(0.004,0.016,max(stationaryError(v.uv),nearby));
+- confidence*=1-stationary*(1-crossing);
++ // Fix21: flat areas look stationary too (clear sky is equal in both real
++ // frames), yet a thin object may cross them in between, like a chimney
++ // passing over sky. UI keeps detail of its own, so the stationary override
++ // needs local contrast, or a candidate close to the current frame anyway.
++ float3 o1=Current.SampleLevel(LinearClamp,v.uv+float2(1,0)*InvImageSize,0).rgb, o2=Current.SampleLevel(LinearClamp,v.uv-float2(1,0)*InvImageSize,0).rgb;
++ float3 o3=Current.SampleLevel(LinearClamp,v.uv+float2(0,1)*InvImageSize,0).rgb, o4=Current.SampleLevel(LinearClamp,v.uv-float2(0,1)*InvImageSize,0).rgb;
++ float detail=smoothstep(0.04,0.1,max(max(colorError(original.rgb,o1),colorError(original.rgb,o2)),max(colorError(original.rgb,o3),colorError(original.rgb,o4))));
++ detail=max(detail,1-smoothstep(0.05,0.15,colorError(candidate.rgb,original.rgb)));
++ confidence*=1-stationary*detail*(1-crossing);
+  return float4(lerp(original.rgb,candidate.rgb,confidence),original.w);
+ }
+ // DX11 multisampled backbuffers (Fix15): frames are written back by drawing,
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/rtx20/shaders.hlsl Fix21/source/rtx20/shaders.hlsl
+--- Fix20/source/rtx20/shaders.hlsl	2026-09-27 21:43:58.000000000 +0000
++++ Fix21/source/rtx20/shaders.hlsl	2026-09-27 22:47:10.000000000 +0000
+@@ -521,8 +521,22 @@
+   flatColor=0.5*(previousAt(p-0.5*flatMotion)*sqrt(gain)+currentAt(p+0.5*flatMotion)/sqrt(gain));
+   weightF=(1-weightB-weightO)*bestFlat*smoothstep(0.08,0.16,colorError(original.rgb,flatColor));
+  }
+- float valid=weightB+weightO+weightF;
+- float3 color=valid>0.001?(weightB*bestColor+weightO*oneColor+weightF*flatColor)/valid:original.rgb;
++ // Fix21: what is still unexplained falls back to the midpoint along the
++ // local motion instead of the unwarped current frame (misplaced by half the
++ // motion), where the scene clearly moves and both frames roughly agree.
++ float weightR=0; float3 refColor=original.rgb;
++ // Not at static overlays (crosshair, HUD): Resolve keeps those.
++ float nearOverlay=OverlayNear.Load(int3(int2(floor(v.position.xy)),0));
++ [branch] if(weightB+weightO+weightF<0.999&&length(reference)>=1&&nearOverlay<0.5){
++  float2 hr=0.5*reference;
++  [branch] if(inside(p-hr)&&inside(p+hr)){
++   float3 ra=previousAt(p-hr)*sqrt(gain), rb=currentAt(p+hr)/sqrt(gain);
++   refColor=0.5*(ra+rb);
++   weightR=(1-weightB-weightO-weightF)*smoothstep(1.0,3.0,length(reference))*(1-smoothstep(0.1,0.25,matchCost(p,hr,gain)));
++  }
++ }
++ float valid=weightB+weightO+weightF+weightR;
++ float3 color=valid>0.001?(weightB*bestColor+weightO*oneColor+weightF*flatColor+weightR*refColor)/valid:original.rgb;
+  // Current content without any correspondence (a new object, or detail too
+  // thin for the flow grid) stays where the real frame shows it instead of
+  // breaking into fragments. Each unmixed block vector is tested separately;
+@@ -596,7 +610,15 @@
+                   min(stationaryError(v.uv+float2(0,1)*InvImageSize),
+                       stationaryError(v.uv-float2(0,1)*InvImageSize)));
+  float stationary=1-smoothstep(0.004,0.016,max(stationaryError(v.uv),nearby));
+- confidence*=1-stationary*(1-crossing);
++ // Fix21: flat areas look stationary too (clear sky is equal in both real
++ // frames), yet a thin object may cross them in between, like a chimney
++ // passing over sky. UI keeps detail of its own, so the stationary override
++ // needs local contrast, or a candidate close to the current frame anyway.
++ float3 o1=Current.SampleLevel(LinearClamp,v.uv+float2(1,0)*InvImageSize,0).rgb, o2=Current.SampleLevel(LinearClamp,v.uv-float2(1,0)*InvImageSize,0).rgb;
++ float3 o3=Current.SampleLevel(LinearClamp,v.uv+float2(0,1)*InvImageSize,0).rgb, o4=Current.SampleLevel(LinearClamp,v.uv-float2(0,1)*InvImageSize,0).rgb;
++ float detail=smoothstep(0.04,0.1,max(max(colorError(original.rgb,o1),colorError(original.rgb,o2)),max(colorError(original.rgb,o3),colorError(original.rgb,o4))));
++ detail=max(detail,1-smoothstep(0.05,0.15,colorError(candidate.rgb,original.rgb)));
++ confidence*=1-stationary*detail*(1-crossing);
+  return float4(lerp(original.rgb,candidate.rgb,confidence),original.w);
+ }
+ // DX11 multisampled backbuffers (Fix15): frames are written back by drawing,
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/rtx20/verify.py Fix21/source/rtx20/verify.py
+--- Fix20/source/rtx20/verify.py	2026-09-27 22:05:36.000000000 +0000
++++ Fix21/source/rtx20/verify.py	2026-09-27 22:48:30.000000000 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.4-rtx20-rtx30-dx12-preview2-fix20-test'
++assert runtime['version']=='2.8.4-rtx20-rtx30-dx12-preview2-fix21-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -80,7 +80,7 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.4-rtx20-rtx30-dx12-preview2-fix20-test' in pe.data
++ assert b'2.8.4-rtx20-rtx30-dx12-preview2-fix21-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix20/source/setup/payload_hashes.hpp Fix21/source/setup/payload_hashes.hpp
+--- Fix20/source/setup/payload_hashes.hpp	2026-09-27 22:06:28.000000000 +0000
++++ Fix21/source/setup/payload_hashes.hpp	2026-09-27 22:49:38.000000000 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "b5ab6a5bd0a2796b686ce8bee09cd33f3038e285da4764babf28bb4f55fc19a0";
+-inline constexpr const char motion[] = "e2bcc64053e7233f65ba66a9c14656ea191f8a7ce0d74e4f6b4b36f9978e5b93";
++inline constexpr const char native_proxy[] = "21e96d011bc69f22c9aff187b91b43fdfccf3269bdbcfa367af2f2a04b15bd1e";
++inline constexpr const char motion[] = "267f7ebc16ed6d805105a130dc3742f1ce5571980bc1e745a1e905ace7fe9d66";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";
