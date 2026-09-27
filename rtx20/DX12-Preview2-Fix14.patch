@@ -43,8 +43,8 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  See FIX13_NOTES.md. Generated and real frames presented on consecutive
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/FIX14_NOTES.md work14/FIX14_NOTES.md
 --- Fix13/FIX14_NOTES.md	1970-01-01 00:00:00.000000000 +0000
-+++ Fix14/FIX14_NOTES.md	2026-09-27 01:43:27.679688039 +0000
-@@ -0,0 +1,203 @@
++++ Fix14/FIX14_NOTES.md	2026-09-27 02:03:46.615224262 +0000
+@@ -0,0 +1,216 @@
 +# Fix 14 — smooth presentation, quality and glass UI test
 +
 +Runtime version: `2.8.4-rtx20-dx12-preview2-fix14-smooth-test`.
@@ -197,6 +197,9 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +| `FlowResolution` | `SM86_FLOW_RESOLUTION` | `auto` | `auto`, `full`, `half` |
 +| `GenerateAboveRefresh` | `SM86_GENERATE_ABOVE_REFRESH` | `0` | `0`, `1` |
 +
++`Pacing=on`, Fix13's value, now selects `auto`. Use `Pacing=vblank` for the
++Fix13 behaviour.
++
 +## Install and check
 +
 +1. Close the game. Replace the previous file with `Manual/Version/version.dll`
@@ -248,6 +251,16 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +  (0.79 → 0.97).
 +- All five entry points compile with glslang, and with DXC strict for HLSL
 +  2016 and 2021.
++- **An independent review of the runtime change** found and led to these
++  fixes, all with tests:
++  - The DX11 wait for the generated frame's visibility now runs only for
++    spaced pairs (it had also stalled unspaced and VSync presentation).
++  - A resize that begins during the spacing wait now ends it within about
++    2 ms, and the restored frame is not submitted.
++  - One hitch no longer cuts the spacing or selects the pipelined order, and
++    VSync pairs do not run the controller.
++  - A busy or queue pass-through restarts the pipelined order.
++  - The pipelined GPU timer starts where the pair is computed.
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/MANUAL_INSTALL.md work14/MANUAL_INSTALL.md
 --- Fix13/MANUAL_INSTALL.md	2026-09-27 00:02:07.897640219 +0000
 +++ Fix14/MANUAL_INSTALL.md	2026-09-27 01:44:33.300016788 +0000
@@ -264,7 +277,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v5. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/Manual/README.md work14/Manual/README.md
 --- Fix13/Manual/README.md	2026-09-27 00:03:22.053508646 +0000
-+++ Fix14/Manual/README.md	2026-09-27 01:46:27.755892157 +0000
++++ Fix14/Manual/README.md	2026-09-27 01:59:37.595213407 +0000
 @@ -9,7 +9,7 @@
  uninstaller remain correct. Manual copying does not create an uninstall receipt.
  See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
@@ -475,14 +488,14 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  r=pathlib.Path(__file__).resolve().parents[1]
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/manager/helper_identity.hpp work14/source/manager/helper_identity.hpp
 --- Fix13/source/manager/helper_identity.hpp	2026-09-27 00:03:02.237841883 +0000
-+++ Fix14/source/manager/helper_identity.hpp	2026-09-27 01:46:08.401032350 +0000
++++ Fix14/source/manager/helper_identity.hpp	2026-09-27 01:59:17.625079533 +0000
 @@ -1,5 +1,5 @@
  #pragma once
  namespace helper_identity {
 -inline constexpr char installer[]="1be4809b41c3b85d6189afe59aaafc16b099738313c78ad099382e8cbd97057b";
 -inline constexpr char collector[]="38dd04dc74933d06d755e96dedc6a0617774a95c8292b06c657fc20c31e2384a";
-+inline constexpr char installer[]="b8097b285bdcfdbcf6f1543cc9eef93a1096a061b6eea5fca44e8cd4d89ca3ae";
-+inline constexpr char collector[]="8caab19214d18c4a6939fed92f1e7bf79c646977c673f6dd63d31e99b2691e29";
++inline constexpr char installer[]="b98ad4358630b45660cdb675ee9eb599f258eb3323878b909e4457b83af32219";
++inline constexpr char collector[]="37679457e379763122fa35a14d5d41e658ad995e58a0398388e0cc2be508fa01";
  }
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/manager/manager.cpp work14/source/manager/manager.cpp
 --- Fix13/source/manager/manager.cpp	2026-09-26 23:58:07.259273351 +0000
@@ -752,7 +765,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  };
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/dxgi_hooks.cpp work14/source/rtx20/dxgi_hooks.cpp
 --- Fix13/source/rtx20/dxgi_hooks.cpp	2026-09-27 00:00:13.407237704 +0000
-+++ Fix14/source/rtx20/dxgi_hooks.cpp	2026-09-27 00:39:40.839798175 +0000
++++ Fix14/source/rtx20/dxgi_hooks.cpp	2026-09-27 01:57:20.423228233 +0000
 @@ -8,6 +8,8 @@
  #include "dx12_transfer.hpp"
  #include "policy.hpp"
@@ -762,16 +775,39 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  #include "creation_policy.hpp"
  #include "nvs30/presentation_policy.hpp"
  #include "nvs30/slot_patch.hpp"
-@@ -217,7 +219,7 @@
+@@ -172,7 +174,10 @@
+ const GUID contextKey={0xcc95229e,0x0bfa,0x4257,{0x86,0x4e,0x45,0x18,0x63,0x79,0x56,0x84}};
+ struct Context final:IUnknown {
+  ComPtr<ID3D12CommandQueue> presentQueue;bool isDX12=false;
+- std::atomic_ulong refs{1};std::atomic_bool presenting{false};std::mutex mutex;sm20::Interpolator interpolator;bool keyHeld=false;bool enabled=true;sm20::PresentationRevision revision;
++ std::atomic_ulong refs{1};std::atomic_bool presenting{false};
++ // Set when a Present reached the game without our pair (busy/queue pass-
++ // through); the pipelined order must not then show an older pair.
++ std::atomic_bool presentedOutside{false};std::mutex mutex;sm20::Interpolator interpolator;bool keyHeld=false;bool enabled=true;sm20::PresentationRevision revision;
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id,void** out)override{if(!out)return E_POINTER;*out=nullptr;if(id!=IID_IUnknown)return E_NOINTERFACE;*out=static_cast<IUnknown*>(this);AddRef();return S_OK;}
+  ULONG STDMETHODCALLTYPE AddRef()override{return ++refs;}
+  ULONG STDMETHODCALLTYPE Release()override{auto n=--refs;if(!n)delete this;return n;}
+@@ -215,14 +220,15 @@
+  if(flags&DXGI_PRESENT_TEST){++bridgeProbes;return original(Skip::test);}
+  ComPtr<Context> state;try{state=contextFor(swap,false);if(!state){adoptAtPresent(swap);state=contextFor(swap,false);}}catch(...){return original(Skip::exception);}
   if(!state)return original(Skip::context);
-  if(state->revision.transitioning()||state->presenting.exchange(true))return original(Skip::busy);
+- if(state->revision.transitioning()||state->presenting.exchange(true))return original(Skip::busy);
++ if(state->revision.transitioning()||state->presenting.exchange(true)){state->presentedOutside=true;return original(Skip::busy);}
   struct Release {Context* p;~Release(){p->presenting=false;}} sequence{state.Get()};
 - bool generated=false,generatedAccepted=false,interrupted=false,paced=false;std::uint64_t revision{};
 + bool generated=false,generatedAccepted=false,interrupted=false;sm20::PairPlan plan{};std::uint64_t revision{};
   auto interruptedPair=[&]{if(!interrupted){interrupted=true;recordSkip(Skip::transition,sync,flags,partial);}};
   {
-   std::unique_lock hold(state->mutex,std::try_to_lock);if(!hold.owns_lock())return original(Skip::busy);if(state->revision.transitioning()){hold.unlock();return original(Skip::busy);}
-@@ -246,10 +248,9 @@
+-  std::unique_lock hold(state->mutex,std::try_to_lock);if(!hold.owns_lock())return original(Skip::busy);if(state->revision.transitioning()){hold.unlock();return original(Skip::busy);}
++  std::unique_lock hold(state->mutex,std::try_to_lock);if(!hold.owns_lock()){state->presentedOutside=true;return original(Skip::busy);}if(state->revision.transitioning()){state->presentedOutside=true;hold.unlock();return original(Skip::busy);}
++  if(state->presentedOutside.exchange(false))state->interpolator.break_pipeline();
+   if(FAILED(state->interpolator.terminal_error()))return state->interpolator.terminal_error();
+-  if(state->isDX12&&!state->presentQueue){hold.unlock();return original(Skip::queue);}
++  if(state->isDX12&&!state->presentQueue){state->interpolator.break_pipeline();hold.unlock();return original(Skip::queue);}
+   DXGI_SWAP_CHAIN_DESC desc{};
+   const bool described=SUCCEEDED(swap->GetDesc(&desc));
+   const auto admission=sm20::request_admission(sync,flags,partial,described&&desc.Windowed,desc.Flags);
+@@ -246,10 +252,9 @@
    revision=state->revision.checkpoint();
    if(!state->revision.current(revision)){state->interpolator.discard_history();hold.unlock();return original(Skip::transition);}
    if(++eligiblePresents==1)logf("[rtx20] Present admitted: sync=%u flags=0x%x partial=%d api=%s.\n",sync,flags,partial?1:0,state->isDX12?"D3D12":"D3D11");
@@ -785,7 +821,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
    if(FAILED(state->interpolator.terminal_error()))return state->interpolator.terminal_error();
    if(!state->revision.current(revision)){state->interpolator.discard_history();hold.unlock();return original(Skip::transition);}
    if(generated){
-@@ -264,7 +265,19 @@
+@@ -264,7 +269,23 @@
    const auto phase=generated&&submitted++==0?sm20::performance::Phase::generated_present:sm20::performance::Phase::real_present;
    sm20::performance::Scope timing(phase);return forward(interval,f);
   };
@@ -800,13 +836,17 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +   // Never under the resource mutex; a window-thread transition ends it.
 +   sm20::performance::Scope timing(sm20::performance::Phase::spacing_wait);
 +   const double start=sm20::pacing::now();
-+   sm20::pacing::wait_until(until,[&]{return state->revision.transitioning();});
++   sm20::pacing::wait_until(until,[&]{return !state->revision.current(revision);});
 +   sm20::performance::spacing_wait_us+=static_cast<unsigned long long>(std::max(0.0,sm20::pacing::now()-start)*1e6);
++   // The restored frame belongs to the checked revision; never submit it
++   // into buffers recreated by a resize that began during the wait.
++   if(state->revision.current(revision))return true;
++   interruptedPair();return false;
 +  },
    [&]{std::scoped_lock hold(state->mutex);
     if(!state->revision.current(revision)){interruptedPair();return sm20::RestoreResult::interrupted;}
     sm20::performance::Scope timing(sm20::performance::Phase::original_write);
-@@ -587,7 +600,7 @@
+@@ -587,7 +608,7 @@
    "\"presentation_profile\":\"%s\",\"presentation_hooks_enabled\":%s,\"present_counter_kind\":\"%s\",\"present_calls\":%llu,\"bridge_submissions\":%llu,\"bridge_present_attempts\":%llu,\"bridge_present_failures\":%llu,"
    "\"bridge_test_calls\":%llu,\"bridge_occluded\":%llu,\"bridge_busy\":%llu,\"passthrough_calls\":%llu,"
    "\"present_eligible\":%llu,\"present_tearing_eligible\":%llu,\"present_skips\":{%s},"
@@ -817,7 +857,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
    imports::providers.count(),imports::providerPatches.load(),imports::providerResolutions.load(),
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/interpolator.cpp work14/source/rtx20/interpolator.cpp
 --- Fix13/source/rtx20/interpolator.cpp	2026-09-26 23:55:36.246307450 +0000
-+++ Fix14/source/rtx20/interpolator.cpp	2026-09-27 01:27:56.925295945 +0000
++++ Fix14/source/rtx20/interpolator.cpp	2026-09-27 01:57:46.846716870 +0000
 @@ -4,6 +4,7 @@
  #include "dx12_transfer.hpp"
  #include "nvof_d3d11.hpp"
@@ -952,7 +992,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   }
   // Read finished timestamp sets without waiting; unfinished sets stay pending.
   void collect_timers(){
-@@ -321,47 +354,99 @@
+@@ -321,47 +354,107 @@
    D3D11_VIEWPORT vp{0,0,float(targetWidth?targetWidth:width),float(targetHeight?targetHeight:height),0,1};context->RSSetViewports(1,&vp);context->OMSetRenderTargets(1,&target,nullptr);
    context->Draw(3,0);context->ClearState();
   }
@@ -1002,7 +1042,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 -   logf("[rtx20] presentation=%s at %.0f real FPS, %.0f Hz display%s.\n",names[static_cast<int>(presentation.state)],realFps,refreshHz,
 -        presentation.state==Presentation::paused?"; generated frames would not be visible (GenerateAboveRefresh=1 overrides)":"");
 -  }
-+  presentation.update(pacing::now(),realFps);
++  presentation.update(pacing::now(),realFps,!vsync);
 +  log_presentation(before,realFps);
    const bool fresh=history&&fresh_history(lastAccepted,GetTickCount64());
    if(fresh&&!presentation.generating())++performance::paused_frames;
@@ -1017,8 +1057,11 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +  else require(swap->GetBuffer(0,IID_PPV_ARGS(&back)),"GetBuffer");
 +  D3D11_TEXTURE2D_DESC desc{};back->GetDesc(&desc);
 +  if(desc.Width!=width||desc.Height!=height||desc.Format!=format)throw std::runtime_error("swapchain changed without resize notification");
++  // The pipelined order computes later (after_generated), which may not
++  // happen; its timer starts there instead.
    GpuTimer* timer=nullptr;
-   if(timersReady&&interpolating){
+-  if(timersReady&&interpolating){
++  if(timersReady&&interpolating&&!pipelined){
     ContextTransaction<ID3D11Multithread> transaction(gameMultithread.Get());
     collect_timers();
 -   auto& slot=timers[timerSlot%timers.size()];
@@ -1058,6 +1101,12 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 + }
 + // Optical flow and synthesis of the pair (frames[0], frames[1]).
 + void compute_pair(GpuTimer* timer,bool restamp){
++  if(restamp&&!timer&&timersReady){
++   ContextTransaction<ID3D11Multithread> transaction(gameMultithread.Get());
++   collect_timers();
++   auto& t=timers[timerSlot%timers.size()];
++   if(!t.pending){timer=&t;++timerSlot;context->Begin(t.disjoint.Get());context->End(t.stamps[0].Get());}
++  }
 +  if(restamp)stamp(timer,1);
 +  if(dx12)dx12->mark_d3d11_work();
    const bool half=use_half_flow(flowSetting,halfFlow!=nullptr,halfMode,frameInterval>0?1/frameInterval:0);
@@ -1073,7 +1122,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
    if(!nativeFlow)context->Flush();
    try{
     performance::Scope timing(performance::Phase::optical_flow);
-@@ -372,7 +457,8 @@
+@@ -372,7 +465,8 @@
       require(halfFlow->execute(halfFrames[0].texture.Get(),halfFrames[1].texture.Get(),output),"native D3D11 NVOF execute (half resolution)");
      }else{
       ID3D11Texture2D* output[]={flows[0].texture.Get(),flows[1].texture.Get()};
@@ -1083,7 +1132,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
      }
     }else{
     CurrentContext current(cuContext);
-@@ -393,6 +479,7 @@
+@@ -393,6 +487,7 @@
     map.close();
     }
     ++flow_pairs;++(halfMode?performance::half_flow_pairs:performance::full_flow_pairs);
@@ -1091,7 +1140,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
    }catch(...){cudaFault=true;throw;}
    stamp(timer,2);
    {performance::Scope timing(performance::Phase::synthesis);
-@@ -403,7 +490,36 @@
+@@ -403,7 +498,38 @@
     draw(synthesize.Get(),reprojected.rtv.Get(),{frames[0].srv.Get(),frames[1].srv.Get(),flow[0].srv.Get(),flow[1].srv.Get(),nullptr,projected.srv.Get()},0,0,settings);
     draw(resolve.Get(),generated.rtv.Get(),{frames[0].srv.Get(),frames[1].srv.Get(),nullptr,nullptr,reprojected.srv.Get(),nullptr},0,0,settings);}
    stamp(timer,3);
@@ -1104,7 +1153,9 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 + double after_generated(bool shownOk){
 +  double visible=shownOk?pacing::now():-1;
 +  bool marked=false;
-+  if(shownOk&&!dx12&&shown){
++  // Only a spaced pair needs the visibility time; unspaced and VSync-paired
++  // presentation must not wait for the GPU here.
++  if(shownOk&&!dx12&&shown&&plan.spacing>0){
 +   // DX11 work is queued: the generated frame appears when the GPU reaches
 +   // its Present. DX12 copies completed before the Present.
 +   ContextTransaction<ID3D11Multithread> transaction(gameMultithread.Get());
@@ -1129,7 +1180,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   }
   bool write(IDXGISwapChain* swap,ID3D11Texture2D* texture){
    ComPtr<ID3D11Texture2D> back;if(FAILED(swap->GetBuffer(0,IID_PPV_ARGS(&back))))return false;
-@@ -433,18 +549,30 @@
+@@ -433,18 +559,30 @@
   impl_.reset();
   if(retry&&!terminal_&&!retryBlocked_)failed_=false;
  }
@@ -1165,11 +1216,12 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   if(SUCCEEDED(hr))return true;
   ++failures;failed_=true;
   if(!generated||!impl_->dx12||impl_->dx12->uncertain())terminal_=DXGI_ERROR_DEVICE_RESET;
-@@ -462,7 +590,11 @@
+@@ -462,7 +600,12 @@
    impl_->frameInterval=update_frame_interval(impl_->frameInterval,std::chrono::duration<double>(now-impl_->lastAcceptedTime).count());
   impl_->lastAcceptedTime=now;
  }
 -void Interpolator::discard_history(){if(impl_){impl_->history=impl_->captured=impl_->generatedReady=false;impl_->presentation.reset();}}
++void Interpolator::break_pipeline(){if(impl_){impl_->ring.reset();}}
 +void Interpolator::discard_history(){
 + if(!impl_)return;
 + impl_->history=impl_->captured=impl_->generatedReady=false;impl_->ring.reset();impl_->plan=PairPlan{};
@@ -1181,8 +1233,8 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  }
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/interpolator.hpp work14/source/rtx20/interpolator.hpp
 --- Fix13/source/rtx20/interpolator.hpp	2026-09-26 23:55:36.246524115 +0000
-+++ Fix14/source/rtx20/interpolator.hpp	2026-09-27 00:39:03.770053933 +0000
-@@ -1,20 +1,26 @@
++++ Fix14/source/rtx20/interpolator.hpp	2026-09-27 01:57:46.846400419 +0000
+@@ -1,28 +1,37 @@
  #pragma once
  #include "nvs30/common.hpp"
  #include <memory>
@@ -1211,8 +1263,11 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   HRESULT terminal_error()const{return terminal_;}
   bool write_generated(IDXGISwapChain* swap);
   bool write_original(IDXGISwapChain* swap);
-@@ -22,7 +28,7 @@
+  void accepted();
   void discard_history();
++ // A Present reached the game without our pair: restart the pipelined order
++ // (history for optical flow is kept).
++ void break_pipeline();
   void reset(bool retry=true);
   bool ready() const;
 - // Present the generated/real pair on consecutive refreshes (sync interval 1).
@@ -1287,10 +1342,11 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   HRESULT execute(ID3D11Texture2D* previous,ID3D11Texture2D* current,ID3D11Texture2D* const flows[2]) noexcept;
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/pacing_clock.hpp work14/source/rtx20/pacing_clock.hpp
 --- Fix13/source/rtx20/pacing_clock.hpp	1970-01-01 00:00:00.000000000 +0000
-+++ Fix14/source/rtx20/pacing_clock.hpp	2026-09-27 00:36:46.391450190 +0000
-@@ -0,0 +1,28 @@
++++ Fix14/source/rtx20/pacing_clock.hpp	2026-09-27 01:57:20.422982054 +0000
+@@ -0,0 +1,30 @@
 +#pragma once
 +#include <windows.h>
++#include <algorithm>
 +#include <chrono>
 +#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 +#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
@@ -1300,8 +1356,9 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +// Precise wait for spaced presentation: sleep on a high-resolution waitable
 +// timer (Windows 10 1803+) until about 1 ms before the target, then spin.
 +// Without that timer the whole wait spins with yields, because a default
-+// resolution sleep can overshoot by a full 15.6 ms tick. Never waits longer
-+// than 100 ms; returns early when abort() becomes true (resize/transition).
++// resolution sleep can overshoot by a full 15.6 ms tick. Sleeps in slices of
++// at most 2 ms so a resize/transition (abort() true) ends the wait promptly.
++// Never waits longer than 100 ms.
 +template<class Abort> void wait_until(double target,Abort abort){
 + thread_local const HANDLE timer=CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
 + const double limit=now()+0.1;if(target>limit)target=limit;
@@ -1310,7 +1367,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +  const double remaining=target-now();
 +  if(remaining<=0)return;
 +  if(timer&&remaining>0.0015){
-+   LARGE_INTEGER due{};due.QuadPart=-static_cast<LONGLONG>((remaining-0.001)*1e7);
++   LARGE_INTEGER due{};due.QuadPart=-static_cast<LONGLONG>(std::min(remaining-0.001,0.002)*1e7);
 +   if(SetWaitableTimerEx(timer,&due,0,nullptr,nullptr,nullptr,0)&&WaitForSingleObject(timer,200)==WAIT_OBJECT_0)continue;
 +  }
 +  if(remaining>0.002)SwitchToThread();else YieldProcessor();
@@ -1377,7 +1434,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  // Cumulative CPU wall time, including waits. These are not GPU durations or
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/policy.hpp work14/source/rtx20/policy.hpp
 --- Fix13/source/rtx20/policy.hpp	2026-09-26 23:54:03.504052999 +0000
-+++ Fix14/source/rtx20/policy.hpp	2026-09-27 01:16:59.440550019 +0000
++++ Fix14/source/rtx20/policy.hpp	2026-09-27 01:57:46.846879699 +0000
 @@ -25,12 +25,15 @@
  // is already high: motion per frame is then small and GPU time decides the
  // generated frame rate. Hysteresis avoids switching back and forth.
@@ -1423,7 +1480,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  // Exponential average of the real frame interval; gaps longer than the
  // history window (pauses, F11, loading) restart the measurement.
  inline double update_frame_interval(double average,double seconds) {
-@@ -54,23 +74,62 @@
+@@ -54,46 +74,136 @@
   return realFps<refreshHz*(generating?1.02:0.9);
  }
  // Presentation of generated frames. Both frames of a pair are submitted from
@@ -1488,19 +1545,21 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 + // Current wait (seconds) and its smoothed fraction of half the reference
 + // interval, used by Pacing=auto to choose the pipelined order.
 + double wait{},averageSpacing{1};
-+ double windowStart{-1};unsigned windowFrames{},windows{},fastWindows{},stalledWindows{};
++ double windowStart{-1},lastFrame{-1},longestFrame{};unsigned windowFrames{},windows{},fastWindows{},stalledWindows{},shortWindows{};
 + // Pacing=auto keeps the pipelined order once timed spacing proved too short.
 + bool learnedPipeline{};
 + static constexpr double window_seconds=0.5,probe=0.00025,margin=0.0005,tolerance=0.01,timed_minimum=0.85,maximum_wait=0.1;
-+ void reset(){state=Presentation::measuring;measureStart=-1;measureFrames=0;windowStart=-1;}
++ void reset(){state=Presentation::measuring;measureStart=-1;measureFrames=0;windowStart=-1;lastFrame=-1;}
 + double ideal() const {return std::min(maximum_wait,reference*0.5);}
 + void enter(Presentation next,double now){
-+  state=next;wait=ideal();averageSpacing=1;windowStart=now;windowFrames=windows=fastWindows=stalledWindows=0;
++  state=next;wait=ideal();averageSpacing=1;windowStart=now;lastFrame=-1;longestFrame=0;windowFrames=windows=fastWindows=stalledWindows=shortWindows=0;
 + }
   // Once per real frame; realFps is the running average of the real rate.
-  Presentation update(double now,double realFps){
+- Presentation update(double now,double realFps){
++ // spacingApplied: false for VSync pairs (no CPU wait to control).
++ Presentation update(double now,double realFps,bool spacingApplied=true){
    const bool visible=generateAboveRefresh||generation_useful(state!=Presentation::paused,realFps,refreshHz);
-@@ -78,22 +137,65 @@
+   switch(state){
     case Presentation::measuring:
      if(measureStart<0){measureStart=now;measureFrames=0;}
      if(++measureFrames>=20&&now-measureStart>=0.75){
@@ -1524,7 +1583,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +   case Presentation::timed:
 +   case Presentation::pipelined:
 +    if(!visible){state=Presentation::paused;break;}
-+    control(now);
++    if(spacingApplied)control(now);else{windowStart=now;windowFrames=0;lastFrame=-1;longestFrame=0;}
      break;
    }
    return state;
@@ -1534,12 +1593,17 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 + // so the excess is removed in one step; otherwise probe upward slowly.
 + void control(double now){
 +  ++windowFrames;
-+  if(windowStart<0){windowStart=now;windowFrames=0;return;}
++  if(lastFrame>=0)longestFrame=std::max(longestFrame,now-lastFrame);
++  lastFrame=now;
++  if(windowStart<0){windowStart=now;windowFrames=0;longestFrame=0;return;}
 +  const double elapsed=now-windowStart;
 +  if(elapsed<window_seconds||!windowFrames)return;
-+  const double interval=elapsed/windowFrames;
-+  windowStart=now;windowFrames=0;++windows;
++  const double interval=elapsed/windowFrames,longest=longestFrame;
++  windowStart=now;windowFrames=0;longestFrame=0;++windows;
 +  if(!(reference>0))return;
++  // A single hitch (loading, shader compilation) says nothing about the
++  // spacing; skip such windows instead of cutting the wait.
++  if(longest>2.5*reference)return;
 +  if(interval>reference*(1+tolerance)+0.0002){
 +   wait=std::max(0.0,wait-(interval-reference)-margin);fastWindows=0;
 +   // Still slow with almost no wait: the game itself slowed down (heavier
@@ -1551,7 +1615,9 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +   if(interval<reference*0.93){if(++fastWindows>=3){reference=interval;wait=std::min(wait,ideal());fastWindows=0;}}else fastWindows=0;
 +  }
 +  averageSpacing+=(spacing()-averageSpacing)*0.3;
-+  if(state==Presentation::timed&&pacing==Pacing::automatic&&windows>=6&&averageSpacing<timed_minimum){
++  // Only sustained short spacing selects the pipelined order.
++  shortWindows=averageSpacing<timed_minimum?shortWindows+1:0;
++  if(state==Presentation::timed&&pacing==Pacing::automatic&&windows>=6&&shortWindows>=4){
 +   learnedPipeline=true;enter(Presentation::pipelined,now);
 +  }
 + }
@@ -1571,7 +1637,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  }
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/policy_test.cpp work14/source/rtx20/policy_test.cpp
 --- Fix13/source/rtx20/policy_test.cpp	2026-09-26 23:54:54.202422391 +0000
-+++ Fix14/source/rtx20/policy_test.cpp	2026-09-27 01:18:14.181715861 +0000
++++ Fix14/source/rtx20/policy_test.cpp	2026-09-27 01:58:20.831921895 +0000
 @@ -4,6 +4,7 @@
  #include <cassert>
  #include <iostream>
@@ -1688,7 +1754,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
    witcher.reset();assert(witcher.state==Presentation::measuring);
    // Blackwood-like: 100 real FPS while generating on 92 Hz -> paused; native
    // 118 stays paused; a heavy scene at 80 resumes measuring.
-@@ -149,22 +232,34 @@
+@@ -149,22 +232,54 @@
    assert(blackwood.update(t,118)==Presentation::paused);
    assert(blackwood.update(t,85)==Presentation::paused);
    assert(blackwood.update(t,80)==Presentation::measuring);
@@ -1716,6 +1782,26 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
    PresentationPolicy brief;brief.refreshHz=60;
    for(int i=0;i<100;++i)brief.update(i*0.001,30);
    assert(brief.state==Presentation::measuring);
++  // One 100 ms hitch (loading) neither cuts the spacing nor selects the
++  // pipelined order.
++  {
++   PresentationPolicy hitch;hitch.refreshHz=144;double t=0,interval=0,last=-1;
++   for(int i=0;i<600;++i){
++    double step=(i==300)?0.1:1/60.0;t+=step;
++    if(last>=0){interval=update_frame_interval(interval,t-last);}
++    last=t;
++    hitch.update(t,interval>0?1/interval:0);
++   }
++   assert(hitch.state==Presentation::timed&&!hitch.learnedPipeline&&hitch.spacing()>0.95);
++  }
++  // VSync pairs apply no CPU wait: the controller does not run (a halved
++  // rate against the unpaired reference must not teach the pipelined order).
++  {
++   PresentationPolicy vsync;vsync.refreshHz=60;double t=0;
++   for(int i=0;i<30;++i){vsync.update(t,60,false);t+=1/60.0;}
++   for(int i=0;i<600;++i){vsync.update(t,30,false);t+=1/30.0;}
++   assert(vsync.state==Presentation::timed&&!vsync.learnedPipeline&&vsync.spacing()>0.99);
++  }
 +  // A game that slows down by itself (heavier scene) is re-measured instead
 +  // of leaving the spacing at zero.
 +  {
@@ -1727,7 +1813,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   }
   {
    // Paced pair: both frames at sync interval 1, tearing flag removed, the
-@@ -182,6 +277,78 @@
+@@ -182,6 +297,86 @@
     [&]{return RestoreResult::restored;},[](bool){},[]{},[]{});
    assert(calls.size()==2&&calls[0]==std::make_pair(0u,generated_do_not_wait)&&calls[1]==std::make_pair(1u,0u));
   }
@@ -1743,14 +1829,14 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +    if(order.size()==1)assert(sync==0&&flags==(present_allow_tearing|generated_do_not_wait));
 +    else assert(sync==0&&flags==present_allow_tearing);
 +    return 0;},
-+   [&](bool accepted){assert(accepted);order.push_back("between");return 5.0;},[&](double until){order.push_back("wait");waited=until;},
++   [&](bool accepted){assert(accepted);order.push_back("between");return 5.0;},[&](double until){order.push_back("wait");waited=until;return true;},
 +   [&]{order.push_back("restore");return RestoreResult::restored;},[&](bool ok){assert(ok);order.push_back("finish");},[]{},[]{assert(false);});
 +  assert(hr==0&&std::abs(waited-5.0167)<1e-9);
 +  assert((order==std::vector<std::string>{"generated","between","restore","wait","real","finish"}));
 +  // Queue busy: no generated frame was shown, so no wait; between still runs.
 +  order.clear();waited=-1;
 +  hr=present_scheduled(plan,0,0,[&](unsigned,unsigned){order.push_back("present");return order.size()==1?present_still_drawing:0;},
-+   [&](bool accepted){assert(!accepted);order.push_back("between");return -1.0;},[&](double){waited=1;},
++   [&](bool accepted){assert(!accepted);order.push_back("between");return -1.0;},[&](double){waited=1;return true;},
 +   [&]{order.push_back("restore");return RestoreResult::restored;},[](bool){},[]{assert(false);},[&]{order.push_back("busy");});
 +  assert(hr==0&&waited<0&&(order==std::vector<std::string>{"present","busy","between","restore","present"}));
 +  // Pipelined start-up: no generated frame yet, previous real frame restored,
@@ -1758,24 +1844,32 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +  PairPlan start;start.restore=true;start.compute=true;start.spacing=0.0167;
 +  order.clear();
 +  hr=present_scheduled(start,1,0,[&](unsigned sync,unsigned flags){assert(sync==1&&flags==0);order.push_back("real");return 0;},
-+   [&](bool accepted){assert(!accepted);order.push_back("compute");return -1.0;},[&](double){assert(false);},
++   [&](bool accepted){assert(!accepted);order.push_back("compute");return -1.0;},[&](double){assert(false);return true;},
 +   [&]{order.push_back("restore");return RestoreResult::restored;},[](bool ok){assert(ok);},[]{assert(false);},[]{assert(false);});
 +  assert(hr==0&&(order==std::vector<std::string>{"compute","restore","real"}));
 +  // Restore-only interrupted by a transition: the game's frame is forwarded.
 +  int presents=0;bool accepted=true;
-+  hr=present_scheduled(start,0,0,[&](unsigned,unsigned){++presents;return 0;},[](bool){return -1.0;},[](double){},
++  hr=present_scheduled(start,0,0,[&](unsigned,unsigned){++presents;return 0;},[](bool){return -1.0;},[](double){return true;},
 +   []{return RestoreResult::interrupted;},[&](bool ok){accepted=ok;},[]{},[]{});
 +  assert(hr==0&&presents==1&&accepted);
 +  // Restore-only failure: nothing presented, device-reset result.
 +  presents=0;
-+  hr=present_scheduled(start,0,0,[&](unsigned,unsigned){++presents;return 0;},[](bool){return -1.0;},[](double){},
++  hr=present_scheduled(start,0,0,[&](unsigned,unsigned){++presents;return 0;},[](bool){return -1.0;},[](double){return true;},
 +   []{return RestoreResult::failed;},[&](bool ok){accepted=ok;},[]{},[]{});
 +  assert(hr==std::int32_t(0x887a0007u)&&presents==0&&!accepted);
++  // A resize that begins during the wait: the restored frame is never
++  // submitted, history is rejected and the generated Present's result returns.
++  {
++   PairPlan spaced;spaced.generated=true;spaced.spacing=0.0167;int presents=0;bool ok=true;
++   auto hr=present_scheduled(spaced,0,0,[&](unsigned,unsigned){++presents;return 0;},[](bool){return 1.0;},[](double){return false;},
++    []{return RestoreResult::restored;},[&](bool accepted){ok=accepted;},[]{},[]{});
++   assert(hr==0&&presents==1&&!ok);
++  }
 +  // VSync game while spaced: paced pair; the caller plans no CPU wait.
 +  PairPlan vsync;vsync.generated=true;vsync.paced=true;
 +  std::vector<std::pair<unsigned,unsigned>> calls;
 +  present_scheduled(vsync,1,0,[&](unsigned sync,unsigned flags){calls.push_back({sync,flags});return 0;},[](bool){return 1.0;},
-+   [&](double){assert(false);},[]{return RestoreResult::restored;},[](bool){},[]{},[]{});
++   [&](double){assert(false);return true;},[]{return RestoreResult::restored;},[](bool){},[]{},[]{});
 +  assert(calls.size()==2&&calls[0]==std::make_pair(1u,0u)&&calls[1]==std::make_pair(1u,0u));
 + }
 + {
@@ -1809,14 +1903,14 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  }
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/present_sequence.hpp work14/source/rtx20/present_sequence.hpp
 --- Fix13/source/rtx20/present_sequence.hpp	2026-09-26 23:54:54.202286886 +0000
-+++ Fix14/source/rtx20/present_sequence.hpp	2026-09-27 00:42:14.268962548 +0000
++++ Fix14/source/rtx20/present_sequence.hpp	2026-09-27 01:57:20.422837950 +0000
 @@ -1,4 +1,5 @@
  #pragma once
 +#include <array>
  #include <atomic>
  #include <cstdint>
  namespace sm20 {
-@@ -25,33 +26,80 @@
+@@ -25,33 +26,81 @@
  // Admission has already validated flags (0 or a legal ALLOW_TEARING).
  // Unpaced: synthetic work never requests a VBlank or waits for a full
  // presentation queue; queue pressure drops only that optional submission.
@@ -1831,7 +1925,8 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 +// Spaced (timed/pipelined): after the generated Present, `between` runs (the
 +// pipelined order computes the next pair there) and returns when the
 +// generated frame became visible; the real Present waits until `spacing`
-+// seconds after that. Other DXGI statuses/errors retain their result and
++// seconds after that. The wait returns whether the restored frame is still
++// valid (no resize/transition began); if not, it is never submitted. Other DXGI statuses/errors retain their result and
 +// reject history. Restore the real image before forwarding the caller's
 +// Present exactly once.
  inline constexpr unsigned paced_flags_mask=~0x200u;
@@ -1899,7 +1994,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
 - // No sleeps or fixed-rate limiter. Game/driver VSync and engine limits still
 - // apply to this original submission. Back-to-back acceptance is not proof of
 - // distinct displayed frames: compositor drops and uneven cadence are possible.
-+ if(shown>=0&&plan.spacing>0)wait_until(shown+plan.spacing);
++ if(shown>=0&&plan.spacing>0&&!wait_until(shown+plan.spacing)){finish(false);return first;}
 + // No fixed-rate limiter. Game/driver VSync and engine limits still apply to
 + // this original submission. Accepted Presents are not proof of distinct
 + // displayed frames: compositor drops and uneven cadence remain possible.
@@ -1908,7 +2003,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
  template<class Present,class Restore,class Finish,class Generated,class Busy>
 +std::int32_t present_pair(bool generated,bool paced,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
 + PairPlan plan;plan.generated=generated;plan.paced=paced;
-+ return present_scheduled(plan,sync,flags,present,[](bool){return -1.0;},[](double){},restore,finish,generated_accepted,generated_busy);
++ return present_scheduled(plan,sync,flags,present,[](bool){return -1.0;},[](double){return true;},restore,finish,generated_accepted,generated_busy);
 +}
 +template<class Present,class Restore,class Finish,class Generated,class Busy>
  std::int32_t present_pair(bool generated,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
@@ -1991,7 +2086,7 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   for(auto& p:Forward.pixels)p={float(int(rng()%2049)-1024),float(int(rng()%2049)-1024)};
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/rtx20/shader_source.hpp work14/source/rtx20/shader_source.hpp
 --- Fix13/source/rtx20/shader_source.hpp	2026-09-27 00:02:08.330148825 +0000
-+++ Fix14/source/rtx20/shader_source.hpp	2026-09-27 01:45:13.894948976 +0000
++++ Fix14/source/rtx20/shader_source.hpp	2026-09-27 01:58:22.557320462 +0000
 @@ -95,31 +95,59 @@
  bool inside(float2 p) { return all(p>=0)&&all(p<=ImageSize-1); }
  float3 previousAt(float2 p) { return Previous.SampleLevel(LinearClamp,(p+0.5)*InvImageSize,0).rgb; }
@@ -2821,15 +2916,15 @@ diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb
   assert b'[rtx20-dx12] Same-adapter D3D11/CUDA transfer ready' in pe.data
 diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=.git' '--exclude=__pycache__' '--exclude=DX12-Preview2-Fix*.patch' work13/source/setup/payload_hashes.hpp work14/source/setup/payload_hashes.hpp
 --- Fix13/source/setup/payload_hashes.hpp	2026-09-27 00:02:52.269001801 +0000
-+++ Fix14/source/setup/payload_hashes.hpp	2026-09-27 01:45:58.780020996 +0000
++++ Fix14/source/setup/payload_hashes.hpp	2026-09-27 01:59:07.659035951 +0000
 @@ -1,8 +1,8 @@
  // Generated from current payloads and pinned legacy ownership identities.
  #pragma once
  namespace payload_hashes {
 -inline constexpr const char native_proxy[] = "30619f709dd4be8954718d582467c2c0e0613fba9aacf46e06c0caf106ac6995";
 -inline constexpr const char motion[] = "1eaec77d7ad60444549f1fa23831bc0b10f54de21a579de63b14f90a59a0f195";
-+inline constexpr const char native_proxy[] = "de569e10ca033a1ed1ad76ff163cc3b9de27f04161cb034409931bf6c151537f";
-+inline constexpr const char motion[] = "3c861afaf29c066419c2ef4c24ce713425f04147f5f5db38991a98c4d4355526";
++inline constexpr const char native_proxy[] = "44537feba8a3bd379de2dc0c162a5705de15c6277bba7176c890b2bccd8146c9";
++inline constexpr const char motion[] = "ba313770e814ea8ecfb9560ad20b41dc8fa9afe557b306168881d515a9039db2";
  inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
  inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
  inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";

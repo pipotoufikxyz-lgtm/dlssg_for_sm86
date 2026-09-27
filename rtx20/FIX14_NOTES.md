@@ -150,6 +150,9 @@ above were re-measured with it. The GPU shader was never affected.
 | `FlowResolution` | `SM86_FLOW_RESOLUTION` | `auto` | `auto`, `full`, `half` |
 | `GenerateAboveRefresh` | `SM86_GENERATE_ABOVE_REFRESH` | `0` | `0`, `1` |
 
+`Pacing=on`, Fix13's value, now selects `auto`. Use `Pacing=vblank` for the
+Fix13 behaviour.
+
 ## Install and check
 
 1. Close the game. Replace the previous file with `Manual/Version/version.dll`
@@ -201,3 +204,13 @@ above were re-measured with it. The GPU shader was never affected.
   (0.79 → 0.97).
 - All five entry points compile with glslang, and with DXC strict for HLSL
   2016 and 2021.
+- **An independent review of the runtime change** found and led to these
+  fixes, all with tests:
+  - The DX11 wait for the generated frame's visibility now runs only for
+    spaced pairs (it had also stalled unspaced and VSync presentation).
+  - A resize that begins during the spacing wait now ends it within about
+    2 ms, and the restored frame is not submitted.
+  - One hitch no longer cuts the spacing or selects the pipelined order, and
+    VSync pairs do not run the controller.
+  - A busy or queue pass-through restarts the pipelined order.
+  - The pipelined GPU timer starts where the pair is computed.
