@@ -1,6 +1,27 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 23 — fewer retry drops, more games hooked (current)
+## Fix 24 — image quality (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix24-Test.zip`: everything in
+Fix23, with better generated frames on RTX 20 and RTX 30. Measured on a new
+real-frame benchmark: 47 triplets of real Witcher 3 frames, found
+automatically, 120 cases, midpoint-aware metric. Wrong pixels fell 17%
+(35,586 → 29,690), and 21% for small motions.
+
+- Soft content (clouds, fog, smooth shading) dissolves instead of jumping
+  ahead where no motion validates.
+- HUD text over a moving scene stays intact.
+- Static thin detail (sword hilts, hair) keeps more of itself.
+- Costs about 2–3% more texture reads per pixel.
+
+Files:
+
+- `FIX24_NOTES.md`: benchmark method, results per crop and motion, changes,
+  limits.
+- `FIX24_COMPARE.png`: real frame / Fix23 / Fix24, wrong pixels in red.
+- `DX12-Preview2-Fix24.patch`: source and document difference from Fix23.
+
+## Fix 23 — fewer retry drops, more games hooked (previous)
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix23-Test.zip`: everything in
 Fix22, plus:
