@@ -1,8 +1,12 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 24 — image quality (current)
+## 2.8.5 Fix 24 — image quality (current)
 
-`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix24-Test.zip`: everything in
+2.8.5 is Fix24 under a new version number. Fix24 was first published here as
+2.8.4 and that ZIP is replaced. Frame generation is unchanged. The Manager
+upgrades the 2.8.4 Fix24 binaries, and its sidebar now shows Fix 24 and 2.8.5.
+
+`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix24-Test.zip`: everything in
 Fix23, with better generated frames on RTX 20 and RTX 30. Measured on a new
 real-frame benchmark: 47 triplets of real Witcher 3 frames, found
 automatically, 120 cases, midpoint-aware metric. Wrong pixels fell 17%

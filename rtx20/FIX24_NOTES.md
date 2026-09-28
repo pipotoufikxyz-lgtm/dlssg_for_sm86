@@ -1,6 +1,10 @@
 # Fix 24 — image quality: skies, HUD text, thin static detail
 
-Runtime version: `2.8.4-rtx20-rtx30-dx12-preview2-fix24-test`.
+Runtime version: `2.8.5-rtx20-rtx30-dx12-preview2-fix24-test`.
+
+Fix24 was first published as 2.8.4. Version 2.8.5 is the same build under a new
+number: frame generation is unchanged. Only the version, the Manager's sidebar
+(it still said Fix 20) and its list of recognized binaries changed.
 
 Fix24 changes only how generated frames are made (the Synthesize and
 Resolve shaders). RTX 20 and RTX 30 use the same synthesis.
@@ -146,5 +150,5 @@ then Fix23 and Fix24, with wrong pixels in red.
 
 Replace the previous file with `Manual/Version/version.dll` or
 `Manual/ASI_Only/new.asi`, or use the Manager. It recognizes exact Fix23
-binaries. Check the log for the version above and
+binaries and the Fix24 binaries published as 2.8.4. Check the log for the version above and
 `artifact_guard=occlusion_aware_v8`.
