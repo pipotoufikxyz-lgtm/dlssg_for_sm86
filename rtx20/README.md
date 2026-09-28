@@ -1,6 +1,45 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## 2.8.5 Fix 24 — image quality (current)
+## 2.8.5 Fix 25 — character edges, speed, compatibility (current)
+
+`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix25-Test.zip`: everything in
+Fix24, plus fixes for the three reports on it (RTX 20 and RTX 30 alike).
+
+- **Fewer artifacts around characters and swords.** Real Monster Hunter World
+  frames: wrong pixels −34% in the character region, −39% on its silhouette,
+  −22% over the frame. A character with a blade and smeared (NVOF-like)
+  flow: 3,973 → 494.
+  - Silhouettes are judged against the motion that dominates the window
+    around them.
+  - Bands the character reveals or covers no longer take its smeared motion.
+  - The trailing edge is kept.
+- **Faster.**
+  - Optical flow runs on a private D3D11 device and worker thread, ordered
+    by GPU fences. The game's Present thread no longer waits for it (8.2 ms
+    per pair in God of War on an RTX 2060). `AsyncFlow=0` restores the old
+    path; setup failures fall back to it automatically.
+  - Synthesis reads 13–26% fewer texels.
+  - Shaders are cached in `%LOCALAPPDATA%\SmoothMotion\ShaderCache`. Only
+    the first start of a new version waits for compilation (41–46 s before).
+- **Games that closed.**
+  - Anti-cheat and Defender modules are never patched: GameGuard (Helldivers
+    2), EasyAntiCheat, BattlEye, XIGNCODE, AhnLab, MpOav/MpClient.
+  - Present hook cycles call the swapchain's own Present, read from the DLL
+    on disk.
+  - Fatal crashes are written to `nvsmooth30.log` with the modules on the
+    stack.
+- Not run on Windows or a GPU here. The attached Far Cry New Dawn log was
+  from 2.8.4 Fix21; please send a Fix25 log (beside the game EXE or in
+  `%LOCALAPPDATA%\SmoothMotion`).
+
+Files:
+
+- `FIX25_NOTES.md`: causes, changes, measurements, limits.
+- `FIX25_COMPARE.png`: real middle frame / Fix24 / Fix25, wrong pixels in red,
+  and the smeared-flow test.
+- `DX12-Preview2-Fix25.patch`: source and document difference from Fix24.
+
+## 2.8.5 Fix 24 — image quality (previous)
 
 2.8.5 is Fix24 under a new version number. Fix24 was first published here as
 2.8.4 and that ZIP is replaced. Frame generation is unchanged. The Manager
@@ -25,7 +64,7 @@ Files:
 - `FIX24_COMPARE.png`: real frame / Fix23 / Fix24, wrong pixels in red.
 - `DX12-Preview2-Fix24.patch`: source and document difference from Fix23.
 
-## Fix 23 — fewer retry drops, more games hooked (previous)
+## Fix 23 — fewer retry drops, more games hooked
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix23-Test.zip`: everything in
 Fix22, plus:
