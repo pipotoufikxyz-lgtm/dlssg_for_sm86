@@ -1,6 +1,30 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## Fix 22 — no freezes on swapchain resizes (current)
+## Fix 23 — fewer retry drops, more games hooked (current)
+
+`SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix23-Test.zip`: everything in
+Fix22, plus:
+
+- **Predicted guard retries.** From the measured cost per frame, a retry
+  that cannot win is skipped (God of War RTX 2060, `nvsmooth30_49.log`: no
+  more periodic drops).
+- **No periodic SLOW-flow hitches** (Monster Hunter World,
+  `nvsmooth30_51.log`).
+- **Present-table probe** for games whose device creation is never
+  intercepted (RTX 3060 Ti, Far Cry New Dawn, `nvsmooth30_50.log`).
+- **Log fallback** to `%LOCALAPPDATA%\SmoothMotion` when the game folder is
+  read-only.
+- **Better thin detail.** More of a nearly screen-fixed character's sword
+  hilts and hair is kept over a fast sky (Witcher 3).
+
+Files:
+
+- `FIX23_NOTES.md`: log analyses, changes, results and limits.
+- `FIX23_SWORD.png`: synthetic sword-over-sky scene, real frame / Fix22 /
+  Fix23.
+- `DX12-Preview2-Fix23.patch`: source and document difference from Fix22.
+
+## Fix 22 — no freezes on swapchain resizes (previous)
 
 `SmoothMotion-2.8.4-RTX20-RTX30-DX12-Preview2-Fix22-Test.zip`: everything in
 Fix21. `nvsmooth30_48.log` (God of War, RTX 2060) showed 20 session rebuilds.
