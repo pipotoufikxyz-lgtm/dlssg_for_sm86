@@ -1,0 +1,77 @@
+--- shaders_fix28.hlsl	2026-10-03 13:27:07.403637210 +0000
++++ shaders.hlsl	2026-10-03 13:27:07.405201406 +0000
+@@ -231,6 +231,12 @@
+ }
+ float2 matchPatch(float2 p,float2 h,float3 gain) { return matchPatchWith(p,h,gain,previousAt(p-h),currentAt(p+h)); }
+ float matchCost(float2 p,float2 h,float3 gain) { return matchPatch(p,h,gain).x; }
++// Content at p moved by m in both directions (exact patches, no one-pixel
++// tolerance: uniformly coloured HUD text would match a neighbouring glyph).
++bool movesHere(float2 p,float2 m,float3 gain) {
++ if(!inside(p-m)||!inside(p+m))return false;
++ return matchPatch(p-0.5*m,0.5*m,gain).x<0.02&&matchPatch(p+0.5*m,0.5*m,gain).x<0.02;
++}
+ // Local exposure change between the frames (auto-exposure, flicker, moving
+ // shadows, light intensity) as a per-channel gain: exposure multiplies light,
+ // and a gain stays a gain after the display's power-law encoding. Estimated
+@@ -850,7 +856,17 @@
+  // Fix26: one return (the helper is inlined into Synthesize, and D3DCompiler
+  // warns, X4000, about an early return there).
+  float4 result=float4(0,0,0,0);
+- [branch] if(steadyMotion){choice=float4(reference,0,1);result=float4(midpointColor(p,reference),1+overlayFlag);}
++ [branch] if(steadyMotion){
++  choice=float4(reference,0,1);
++  float3 steadyColor=midpointColor(p,reference);
++  // Moving detail over content that looks the same here in both frames (see
++  // the full path below): flagged so Resolve does not take it for UI.
++  float movingFlag=0;
++  [branch] if(overlayFlag==0&&length(reference)>=2&&colorError(steadyColor,original.rgb)>0.1&&colorError(previousAt(p),original.rgb)<0.02){
++   if(movesHere(p,reference,gain))movingFlag=4;
++  }
++  result=float4(steadyColor,1+overlayFlag+movingFlag);
++ }
+  else{
+  Ranking ranking;
+  ranking.m0=ranking.m1=ranking.m2=float2(0,0); ranking.c0=ranking.c1=ranking.c2=1e9;
+@@ -1067,6 +1083,14 @@
+  // (the object has left it in both real frames), which Resolve must not
+  // mistake for UI. Flagged by +4 in alpha.
+  float crossingFlag=(bestCrossing>0.5&&weightB>0.5*valid&&keep<0.5)?4:0;
++ // Moving scene that looks the same at this pixel in both real frames (dark
++ // sky or a plain wall before and after a star, light or spark sweeps across
++ // it): its content here is explained by the chosen motion, which static
++ // UI never is. Flagged like a crossing so that Resolve's stationary-UI
++ // override does not erase the detail passing through.
++ [branch] if(crossingFlag==0&&overlayFlag==0&&keep<0.5&&weightB>0.5*valid&&bestConfidence>0.9&&length(bestMotion)>=2&&colorError(color,original.rgb)>0.1&&colorError(previousAt(p),original.rgb)<0.02){
++  if(movesHere(p,bestMotion,gain))crossingFlag=4;
++ }
+  // Fix26: the interpretation contributing most to this pixel, for Coherence.
+  float wb=(1-keep)*weightB, wo=(1-keep)*weightO, wf=(1-keep)*weightF, wr=(1-keep)*weightR;
+  float top=max(max(wb,wo),max(max(wf,wr),keep));
+@@ -1105,6 +1129,18 @@
+    support+=confidenceOf(x==0&&y==0?candidate.w:Reprojection.Load(int3(clamp(here+int2(x,y),int2(0,0),last),0)).w);
+  // Both frames at this pixel and its four neighbours, sampled once (Fix25).
+  float3 previousHere=Previous.SampleLevel(LinearClamp,v.uv,0).rgb;
++ // Scene that changed between the frames is overlay protected only within one
++ // pixel of a flagged overlay pixel (antialiased glyph edges): two pixels out it
++ // is plain background moving behind the text, which the current frame shows
++ // misplaced by half the motion. Unchanged pixels (glyph strokes, of which
++ // OverlayMask flags only some) keep the two-pixel reach.
++ [branch] if(overlays>0&&colorError(previousHere,original.rgb)>=0.02){
++  overlays=0;
++  [unroll] for(int oy=-1;oy<=1;++oy)
++   [unroll] for(int ox=-1;ox<=1;++ox)
++    overlays+=OverlayRaw.Load(int3(clamp(here+int2(ox,oy),int2(0,0),last),0))>0.5?1:0;
++  overlays=min(overlays,2.0);
++ }
+  float3 o1=Current.SampleLevel(LinearClamp,v.uv+float2(1,0)*InvImageSize,0).rgb, o2=Current.SampleLevel(LinearClamp,v.uv-float2(1,0)*InvImageSize,0).rgb;
+  float3 o3=Current.SampleLevel(LinearClamp,v.uv+float2(0,1)*InvImageSize,0).rgb, o4=Current.SampleLevel(LinearClamp,v.uv-float2(0,1)*InvImageSize,0).rgb;
+  float3 q1=Previous.SampleLevel(LinearClamp,v.uv+float2(1,0)*InvImageSize,0).rgb, q2=Previous.SampleLevel(LinearClamp,v.uv-float2(1,0)*InvImageSize,0).rgb;
+@@ -1248,7 +1284,7 @@
+  if(undecided){
+   float tolerance=1.5+0.05*length(window.xy);
+   // Not next to static overlays (crosshair, HUD): Resolve keeps those.
+-  [branch] if(windowValid&&en>=3&&fraction>=0.6&&side<1.5&&length(window.xy)>=2&&length(m-window.xy)<tolerance&&!overlayOf(result.w)&&OverlayNear.Load(int3(here,0)).x<0.5){
++  [branch] if(windowValid&&en>=3&&fraction>=0.6&&side<1.5&&length(m-window.xy)<tolerance&&!overlayOf(result.w)&&OverlayNear.Load(int3(here,0)).x<0.5){
+    // The background end continues the neighbours' results (textured or
+    // not); the other end shows the occluding object.
+    ea=inside(p-hw)?ea/en:9; eb=inside(p+hw)?eb/en:9;
