@@ -75,6 +75,10 @@ def score(label, shader, extra=None):
                          mae=float(np.abs(out.astype(np.float32) - mid).mean() / 255),
                          psnr=float(10 * np.log10(1 / max(1e-10, (((out.astype(np.float32) - mid) / 255) ** 2).mean()))))
         Image.fromarray(out).save(os.path.join(out_dir, name + '.png'))
+        for extra in ('rep.raw', 'coh.raw', 'choice.raw', 'omask.raw'):
+            if os.path.exists(os.path.join(d, extra)):
+                import shutil
+                shutil.copy(os.path.join(d, extra), os.path.join(out_dir, name + '.' + extra))
         np.save(os.path.join(out_dir, name + '.npy'), out)
     json.dump(res, open(os.path.join(out_dir, 'scores.json'), 'w'), indent=1)
     tot = sum(r['wrong'] for r in res.values())

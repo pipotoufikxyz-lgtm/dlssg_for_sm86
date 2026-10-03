@@ -250,7 +250,7 @@ def blend(cells, sigma):
     return np.stack([ndimage.gaussian_filter(cells[..., k], sigma, mode='nearest') for k in range(2)], -1)
 
 
-def block_match(a, b, radius_cells=12, lam=0.08):
+def block_match(a, b, radius_cells=18, lam=0.08):
     """Regularised coarse-to-fine block matcher (8x8 support per 4x4 cell)
     finding where content of `a` went in `b`. Returns cell flow in px."""
     gh, gw = (H + 3) // 4, (W + 3) // 4

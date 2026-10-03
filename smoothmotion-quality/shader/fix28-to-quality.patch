@@ -1,19 +1,178 @@
 --- shaders_fix28.hlsl	2026-10-03 13:27:07.403637210 +0000
-+++ shaders.hlsl	2026-10-03 13:27:07.405201406 +0000
-@@ -231,6 +231,12 @@
++++ shaders.hlsl	2026-10-03 14:52:51.176237683 +0000
+@@ -229,8 +229,40 @@
+  }
+  return float2(cost/6,contrast);
  }
++// Also z: the centre with the better matching neighbour pair (horizontal or
++// vertical). Along a thin object (pole, wire, sword) that pair lies on the
++// object, while the other pair samples the differently moving scene beside it,
++// so the full patch cost would reject the object's own motion.
++float3 matchPatchAxes(float2 p,float2 h,float3 gain,float3 centerA,float3 centerB) {
++ float3 a=centerA*gain, b=centerB;
++ float c0=colorError(a,b), contrast=0; float e[4];
++ [unroll] for(int i=0;i<4;++i){
++  float2 o=i==0?float2(1,0):(i==1?float2(-1,0):(i==2?float2(0,1):float2(0,-1)));
++  float3 na=previousAt(p-h+o)*gain, nb=currentAt(p+h+o);
++  e[i]=colorError(na,nb); contrast=max(contrast,max(colorError(na,a),colorError(nb,b)));
++ }
++ return float3((2*c0+e[0]+e[1]+e[2]+e[3])/6,contrast,(2*c0+2*min(e[0]+e[1],e[2]+e[3]))/6);
++}
  float2 matchPatch(float2 p,float2 h,float3 gain) { return matchPatchWith(p,h,gain,previousAt(p-h),currentAt(p+h)); }
  float matchCost(float2 p,float2 h,float3 gain) { return matchPatch(p,h,gain).x; }
 +// Content at p moved by m in both directions (exact patches, no one-pixel
 +// tolerance: uniformly coloured HUD text would match a neighbouring glyph).
++// Scene beside a static overlay that moved by m: this pixel's own value is
++// found m back in the previous frame and m ahead in the current frame (single
++// samples: patches would include the overlay). Antialiased overlay edges hold
++// part of the static overlay and never are.
++bool movesBesideOverlay(float2 p,float2 m,float3 current,float3 previous) {
++ if(length(m)<2||!inside(p-m)||!inside(p+m))return false;
++ return colorError(current,previousAt(p-m))<0.03&&colorError(previous,currentAt(p+m))<0.03;
++}
 +bool movesHere(float2 p,float2 m,float3 gain) {
 + if(!inside(p-m)||!inside(p+m))return false;
++ // Structure that rests here in both frames is UI (repetitive HUD text can
++ // also match another glyph one motion away); only plain content qualifies.
++ float2 still=matchPatch(p,float2(0,0),gain);
++ if(still.x<0.02&&still.y>0.08)return false;
 + return matchPatch(p-0.5*m,0.5*m,gain).x<0.02&&matchPatch(p+0.5*m,0.5*m,gain).x<0.02;
 +}
  // Local exposure change between the frames (auto-exposure, flicker, moving
  // shadows, light intensity) as a per-channel gain: exposure multiplies light,
  // and a gain stays a gain after the display's power-law encoding. Estimated
-@@ -850,7 +856,17 @@
+@@ -261,8 +293,21 @@
+  }
+  float3 mean=sum/max(weight,0.001);
+  float size=max(abs(mean.x),max(abs(mean.y),abs(mean.z)));
+- float3 limited=clamp(mean,float3(-0.25,-0.25,-0.25),float3(0.25,0.25,0.25));
+- return exp(limited*smoothstep(3.5,5.0,weight)*(1-smoothstep(0.25,0.4,size)));
++ // Beyond that (fades, flashes) only a change that is the same twelve pixels
++ // away in four directions is accepted: a fade is global, while a wrong
++ // vector over texture produces a local, inconsistent ratio.
++ float range=0.25;
++ [branch] if(size>0.25&&weight>=5){
++  float agree=0;
++  [unroll] for(int f=0;f<4;++f){
++   float2 o=f==0?float2(12,0):(f==1?float2(-12,0):(f==2?float2(0,12):float2(0,-12)));
++   float3 far=log((currentAt(p+0.5*motion+o)+0.03)/(previousAt(p-0.5*motion+o)+0.03));
++   agree+=colorError(far,mean)<0.06?1:0;
++  }
++  if(agree>=3)range=0.7;
++ }
++ float3 limited=clamp(mean,-float3(range,range,range),float3(range,range,range));
++ return exp(limited*smoothstep(3.5,5.0,weight)*(1-smoothstep(range,range+0.15+0.05*(range>0.3?1:0),size)));
+ }
+ bool changed(float3 gain) { return max(abs(gain.x-1),max(abs(gain.y-1),abs(gain.z-1)))>0.01; }
+ // Smallest difference between a color and the previous (or current) frame
+@@ -354,12 +399,18 @@
+  float3 rawMatch=refineMatch(own,mean,center,step,raw,backward);
+  float rawCost=rawMatch.x;
+  float2 best=raw; float bestCost=rawCost;
+- float2 adopted=raw; bool found=false;
++ float2 adopted=raw; bool found=false, consistent=false;
+  // A reported vector that matches after a plausible brightness change is
+  // right (lighting changed, not the motion).
+  [branch] if(rawCost>0.02&&rawCost<9&&rawMatch.z>0.02){
+   float2 reverse=cellFlow(int2(floor(toGrid(center+raw)+0.5)),!backward);
+-  [branch] if(length(raw+reverse)<2*motionTolerance(length(raw))+2){
++  // Where the two directions disagree (an occlusion by the flow's own
++  // account, or just noisy flow) the search still runs, but only a near-exact
++  // match may replace the vector (covered content matches no candidate, and
++  // a coincidental match in a covered or revealed band is rarely exact);
++  // adopting a nearby motion stays reserved for agreeing vectors.
++  consistent=length(raw+reverse)<2*motionTolerance(length(raw))+2;
++  {
+    // 8 neighbours, then 8 directions at 2, 4 and 6 cells (nearest first).
+    // A vector equal to the reported one or to the previously evaluated one
+    // needs no new match (neighbouring cells often share a vector).
+@@ -420,12 +471,32 @@
+  }
+  // A clearly better, good match replaces the vector. Otherwise a vector that
+  // clearly fails takes the nearest confirmed motion of similar content.
+- bool verified=bestCost<0.75*rawCost&&rawCost-bestCost>0.015&&bestCost<0.05;
++ // (and only on textured content, where an exact match is informative).
++ float detailHere=0;
++ [unroll] for(int t=0;t<16;++t)detailHere=max(detailHere,colorError(own[t],mean));
++ bool verified=bestCost<0.75*rawCost&&rawCost-bestCost>0.015&&bestCost<(consistent?0.05:(detailHere>0.08?0.015:-1.0));
+  // Adoption needs a vector that explains almost none of the cell: one that
+  // matches part of it (a cell mixing two layers, carrying the motion of one)
+  // is what an ideal flow reports there.
+- bool adopt=!verified&&found&&rawCost>0.08&&rawCost<9&&rawMatch.y<4;
++ bool adopt=!verified&&consistent&&found&&rawCost>0.08&&rawCost<9&&rawMatch.y<4;
+  float2 result=verified?best:(adopt?adopted:raw);
++ // Vector noise inside one surface (low texture, quantisation, noisy hardware
++ // flow): the mean of the 3x3 cells that carry the same motion (within the
++ // motion tolerance, so other layers at an outline are excluded) replaces the
++ // vector where it matches the cell clearly better.
++ [branch] if(!verified&&!adopt&&rawCost<9){
++  float tolerance=motionTolerance(length(raw));
++  float3 sum=float3(0,0,0);
++  [unroll] for(int n=0;n<9;++n){
++   float2 v=cellFlow(cell+int2(n%3-1,n/3-1),backward);
++   if(length(v-raw)<tolerance)sum+=float3(v,1);
++  }
++  float2 mean=sum.xy/sum.z;
++  [branch] if(sum.z>=5&&length(mean-raw)>0.1){
++   float meanCost=refineCost(own,center,step,mean,backward);
++   if(meanCost<0.95*rawCost-0.001)result=mean;
++  }
++ }
+  return int2(round(result/FlowGain));
+ }
+ int2 RefineForward(Vertex v) : SV_Target { return refineCell(int2(floor(v.position.xy)),false); }
+@@ -552,8 +623,8 @@
+    float identity=colorError(colorA*gain,colorB);
+    support=max(support,max(supportA,supportB)*(1-smoothstep(0.02,0.05,identity))*limit);
+   }
+-  float2 patch=matchPatchWith(p,h,gain,colorA,colorB);
+-  float cost=patch.x;
++  float3 patch=matchPatchAxes(p,h,gain,colorA,colorB);
++  float cost=patch.x, thinCost=patch.z;
+   // Flat (untextured) endpoints that match tightly: clear sky, plain walls.
+   // Optical flow has nothing to lock onto there, so its two directions often
+   // disagree and the support above fails; yet the pixel is plainly visible
+@@ -576,9 +647,9 @@
+   // background, painted over the object. Only the minority motion crosses.
+   float backgroundA=1-smoothstep(tolerance,2.5*tolerance,length(forward.flow-dominant));
+   float backgroundB=1-smoothstep(tolerance,2.5*tolerance,length(backward.flow+dominant));
+-  float oneEnd=max(supportA*backgroundB,supportB*backgroundA)*limit*(1-smoothstep(0.02,0.06,cost))*0.9;
++  float oneEnd=max(supportA*backgroundB,supportB*backgroundA)*limit*(1-smoothstep(0.02,0.06,thinCost))*0.9;
+   float minority=saturate((length(m-dominant)-2)*0.25);
+-  float crossing=max(support*(1-smoothstep(0.06,0.25,cost)),oneEnd)*minority;
++  float crossing=max(support*(1-smoothstep(0.06,0.25,thinCost)),oneEnd)*minority;
+   // Fix26 (Witcher 3: sword pommels, hair and HUD text over a fast sky):
+   // detail narrower than a flow cell owns no block vector, so neither end
+   // supports its motion and the sky's flow-supported match won, painting sky
+@@ -588,15 +659,26 @@
+   // window's own moving foreground motion (the clearly separate second
+   // motion), never for the dominant motion; screen-fixed HUD keeps the
+   // static-overlay path (a crossing flag would lift Resolve's protection).
+-  float textured=(1-smoothstep(0.03,0.07,cost))*smoothstep(0.08,0.2,patch.y)*limit;
++  float textured=(1-smoothstep(0.03,0.07,thinCost))*smoothstep(0.08,0.2,patch.y)*limit;
+   float foreground=(1-smoothstep(tolerance,2.5*tolerance,length(m-secondMotion)))*(length(secondMotion-dominant)>=4+0.1*length(dominant)?1.0:0.0)*smoothstep(1.0,2.0,speed);
+   crossing=max(crossing,0.95*textured*minority*foreground);
++  // Objects too sparse to register as the window's second motion (fence
++  // posts, railings, single poles): the flow saw this motion at one end, the
++  // match is tight along the object, and the motion is clearly separate from
++  // the window's. Stricter than the window-supported case above.
++  float separate=length(m-dominant)>=4+0.1*length(dominant)?1.0:0.0;
++  float sparse=(1-smoothstep(0.015,0.035,thinCost))*smoothstep(0.08,0.2,patch.y)*limit*max(supportA,supportB)*separate*smoothstep(1.0,2.0,speed);
++  crossing=max(crossing,0.9*sparse*minority);
+   // The crossing samples must belong to the moving object: background that
+   // the dominant motion already explains (e.g. beside an object's edge)
+   // cannot claim the object's motion.
+   [branch] if(crossing>0){
+    float objectA=nearestIn(colorA*gain,pa+dominant,true), objectB=nearestIn(colorB/gain,pb-dominant,false);
+    crossing*=smoothstep(0.04,0.12,min(objectA,objectB));
++   // Nor, for a moving claim, content resting at both ends (HUD strokes
++   // matching each other along the scene's motion): a moving object has left
++   // its end in the other frame. (A static object's zero motion rests there.)
++   [branch] if(speed>=2)crossing*=smoothstep(0.04,0.12,max(colorError(colorA*gain,currentAt(pa)),colorError(colorB/gain,previousAt(pb))));
+   }
+   r.confidence=max(r.confidence,crossing);r.crossing=crossing;
+   r.score=(1-r.confidence)+0.25*cost-0.6*crossing;
+@@ -850,7 +932,21 @@
   // Fix26: one return (the helper is inlined into Synthesize, and D3DCompiler
   // warns, X4000, about an early return there).
   float4 result=float4(0,0,0,0);
@@ -27,15 +186,86 @@
 +  [branch] if(overlayFlag==0&&length(reference)>=2&&colorError(steadyColor,original.rgb)>0.1&&colorError(previousAt(p),original.rgb)<0.02){
 +   if(movesHere(p,reference,gain))movingFlag=4;
 +  }
++  [branch] if(overlayFlag==0&&movingFlag==0&&OverlayNear.Load(int3(int2(floor(v.position.xy)),0)).x>0.5){
++   float3 previousHere=previousAt(p);
++   if(colorError(previousHere,original.rgb)>=0.02&&movesBesideOverlay(p,reference,original.rgb,previousHere))movingFlag=4;
++  }
 +  result=float4(steadyColor,1+overlayFlag+movingFlag);
 + }
   else{
   Ranking ranking;
   ranking.m0=ranking.m1=ranking.m2=float2(0,0); ranking.c0=ranking.c1=ranking.c2=1e9;
-@@ -1067,6 +1083,14 @@
+@@ -1063,10 +1159,84 @@
+   keep=max(keep,glyph);
+  }
+  color=lerp(color,original.rgb,keep);
++ // Fade or flash on a still scene (the window and the local flow both at
++ // rest): the pixel and its four neighbours keep their structure and change by
++ // one brightness factor, beyond what the exposure estimate accepts. Nothing
++ // moved, so the cross-fade is the midpoint (the current frame is a whole fade
++ // step too far).
++ float fading=0;
++ // (Every pixel of a strong fade looks unexplained, so keep is not a reason
++ // to skip: the fit below is the explanation.)
++ [branch] if(windowValid&&length(dominant)<1&&length(reference)<1){
++  float3 a0=previousAt(p), b0=original.rgb;
++  [branch] if(colorError(a0,b0)>0.06){
++   float3 sa=a0, sb=b0, na[4], nb[4];
++   [unroll] for(int q=0;q<4;++q){
++    float2 o=q==0?float2(1,0):(q==1?float2(-1,0):(q==2?float2(0,1):float2(0,-1)));
++    na[q]=previousAt(p+o); nb[q]=currentAt(p+o); sa+=na[q]; sb+=nb[q];
++   }
++   float g=(dot(sa,float3(1,1,1))+0.03)/(dot(sb,float3(1,1,1))+0.03);
++   float residual=colorError(a0,b0*g);
++   [unroll] for(int r=0;r<4;++r)residual=max(residual,colorError(na[r],nb[r]*g));
++   // A fade is global: the same factor holds six pixels away (an object
++   // arriving over smooth background fits the five pixels, not the ring).
++   [branch] if(residual<0.035){
++    [unroll] for(int f=0;f<4;++f){
++     float2 o=f==0?float2(6,0):(f==1?float2(-6,0):(f==2?float2(0,6):float2(0,-6)));
++     float3 fa=previousAt(p+o), fb=currentAt(p+o);
++     residual=max(residual,colorError(fa,fb*g)+0.5*(1-smoothstep(0.03,0.06,colorError(fa,fb))));
++    }
++   }
++   fading=(1-smoothstep(0.015,0.035,residual))*smoothstep(0.06,0.12,colorError(a0,b0));
++   [branch] if(fading>0)color=lerp(color,0.5*(a0+b0),fading);
++  }
++ }
++ // Static translucent layer (crosshair, HUD glass, subtitle panel, glyph
++ // antialiasing) over scene moving by the window's motion mT. Such a pixel is
++ // a*overlay+(1-a)*scene in both frames, so prev(p)-cur(p) equals
++ // (1-a)*(cur(p+mT)-prev(p-mT)) in every channel; the fitted (1-a) gives the
++ // midpoint as the static part plus (1-a) times the scene's midpoint. Only a
++ // tight three-channel fit of a partial opacity is used (fully moving or
++ // fully static pixels are handled above).
++ float translucent=0;
++ [branch] if(windowValid&&length(dominant)>=2&&keep<0.99){
++  float2 mT=dominant;
++  // The pixel itself must not follow the chosen motion in either direction:
++  // a moving object's pixel does, a static layer's static part never does.
++  [branch] if(inside(p-mT)&&inside(p+mT)&&explained(original.rgb,gain,p-bestMotion)>0.05&&nearestIn(previousAt(p),p+bestMotion,true)>0.05){
++   float3 previousHere=previousAt(p), ahead=currentAt(p+mT), behind=previousAt(p-mT);
++   float3 d0=previousHere-original.rgb, d1=ahead-behind;
++   float den=dot(d1,d1);
++   [branch] if(den>0.03){
++    float k=saturate(dot(d0,d1)/den);
++    float residual=colorError(d0,k*d1);
++    float3 sceneA=previousAt(p-0.5*mT), sceneB=currentAt(p+0.5*mT);
++    float sceneCost=colorError(sceneA,sceneB);
++    translucent=(1-smoothstep(0.015,0.035,residual))*(1-smoothstep(0.04,0.08,sceneCost))*smoothstep(0.05,0.15,k)*(1-smoothstep(0.85,0.95,k));
++    [branch] if(translucent>0)color=lerp(color,0.5*(previousHere+original.rgb)+k*(0.5*(sceneA+sceneB)-0.5*(ahead+behind)),translucent);
++   }
++  }
++ }
+  // A confident crossing object: its midpoint pixel may look screen-stationary
   // (the object has left it in both real frames), which Resolve must not
   // mistake for UI. Flagged by +4 in alpha.
-  float crossingFlag=(bestCrossing>0.5&&weightB>0.5*valid&&keep<0.5)?4:0;
+- float crossingFlag=(bestCrossing>0.5&&weightB>0.5*valid&&keep<0.5)?4:0;
++ // The crossing's motion must be clearly separate from the window's: the
++ // scene moving behind a static overlay is never in front of it, and noisy
++ // vectors near the scene's motion only partly count as a minority.
++ bool separateCrossing=!windowValid||length(bestMotion-dominant)>=4+0.1*length(dominant);
++ float crossingFlag=((bestCrossing>0.5&&weightB>0.5*valid&&keep<0.5&&separateCrossing)||translucent>0.5)?4:0;
 + // Moving scene that looks the same at this pixel in both real frames (dark
 + // sky or a plain wall before and after a star, light or spark sweeps across
 + // it): its content here is explained by the chosen motion, which static
@@ -44,29 +274,45 @@
 + [branch] if(crossingFlag==0&&overlayFlag==0&&keep<0.5&&weightB>0.5*valid&&bestConfidence>0.9&&length(bestMotion)>=2&&colorError(color,original.rgb)>0.1&&colorError(previousAt(p),original.rgb)<0.02){
 +  if(movesHere(p,bestMotion,gain))crossingFlag=4;
 + }
++ [branch] if(crossingFlag==0&&overlayFlag==0&&keep<0.5&&weightB>0.5*valid&&nearOverlay>0.5){
++  float3 previousHere=previousAt(p);
++  if(colorError(previousHere,original.rgb)>=0.02&&movesBesideOverlay(p,bestMotion,original.rgb,previousHere))crossingFlag=4;
++ }
   // Fix26: the interpretation contributing most to this pixel, for Coherence.
   float wb=(1-keep)*weightB, wo=(1-keep)*weightO, wf=(1-keep)*weightF, wr=(1-keep)*weightR;
   float top=max(max(wb,wo),max(max(wf,wr),keep));
-@@ -1105,6 +1129,18 @@
+@@ -1077,7 +1247,21 @@
+   else if(top==wr)choice=float4(refMotion,0,top);
+   else choice=float4(0,0,2,top);
+  }
+- result=float4(color,max(valid,keep)+overlayFlag+crossingFlag);
++ // Resolve trusts this pixel by its confidence and falls back to the real
++ // frame below 0.9. Where the surrounding window moves consistently in both
++ // flow directions (not a scene cut or corrupted flow), a partly confident
++ // interpretation is still far closer to the midpoint than the unwarped
++ // frame, so its confidence is reported on a steeper scale.
++ float confidenceOut=max(max(max(valid,keep),translucent),fading);
++ // Not for a one-sided fill along a motion that is neither of the window's:
++ // what continues behind an object moves with the window (smeared vectors
++ // beside a thin object propose such fills).
++ float2 sideMotion=useCurrent?fromCurrent.motion:fromPrevious.motion;
++ float sideTolerance=motionTolerance(length(sideMotion));
++ bool sideTop=(1-keep)*weightO>max(max((1-keep)*weightB,(1-keep)*weightF),max((1-keep)*weightR,keep));
++ bool foreignSide=sideTop&&length(sideMotion-dominant)>=sideTolerance&&length(sideMotion-secondMotion)>=sideTolerance;
++ if(windowValid&&!foreignSide&&confidenceOut>0.001)confidenceOut=saturate(0.2+confidenceOut*2.3333);
++ result=float4(color,confidenceOut+overlayFlag+crossingFlag);
+  }
+  return result;
+ }
+@@ -1105,6 +1289,7 @@
     support+=confidenceOf(x==0&&y==0?candidate.w:Reprojection.Load(int3(clamp(here+int2(x,y),int2(0,0),last),0)).w);
   // Both frames at this pixel and its four neighbours, sampled once (Fix25).
   float3 previousHere=Previous.SampleLevel(LinearClamp,v.uv,0).rgb;
-+ // Scene that changed between the frames is overlay protected only within one
-+ // pixel of a flagged overlay pixel (antialiased glyph edges): two pixels out it
-+ // is plain background moving behind the text, which the current frame shows
-+ // misplaced by half the motion. Unchanged pixels (glyph strokes, of which
-+ // OverlayMask flags only some) keep the two-pixel reach.
-+ [branch] if(overlays>0&&colorError(previousHere,original.rgb)>=0.02){
-+  overlays=0;
-+  [unroll] for(int oy=-1;oy<=1;++oy)
-+   [unroll] for(int ox=-1;ox<=1;++ox)
-+    overlays+=OverlayRaw.Load(int3(clamp(here+int2(ox,oy),int2(0,0),last),0))>0.5?1:0;
-+  overlays=min(overlays,2.0);
-+ }
++ 
   float3 o1=Current.SampleLevel(LinearClamp,v.uv+float2(1,0)*InvImageSize,0).rgb, o2=Current.SampleLevel(LinearClamp,v.uv-float2(1,0)*InvImageSize,0).rgb;
   float3 o3=Current.SampleLevel(LinearClamp,v.uv+float2(0,1)*InvImageSize,0).rgb, o4=Current.SampleLevel(LinearClamp,v.uv-float2(0,1)*InvImageSize,0).rgb;
   float3 q1=Previous.SampleLevel(LinearClamp,v.uv+float2(1,0)*InvImageSize,0).rgb, q2=Previous.SampleLevel(LinearClamp,v.uv-float2(1,0)*InvImageSize,0).rgb;
-@@ -1248,7 +1284,7 @@
+@@ -1248,7 +1433,7 @@
   if(undecided){
    float tolerance=1.5+0.05*length(window.xy);
    // Not next to static overlays (crosshair, HUD): Resolve keeps those.

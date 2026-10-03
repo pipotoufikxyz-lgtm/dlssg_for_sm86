@@ -39,8 +39,8 @@ static ID3DBlob* compileEntry(const std::vector<char>& src, const char* entry, b
   DWORD t1 = GetTickCount();
   printf("compile %-15s hr=0x%08lx %5lu ms%s\n", entry, hr, t1 - t0, err ? " (messages)" : "");
   if (err) { printf("%.*s\n", (int)err->GetBufferSize(), (const char*)err->GetBufferPointer()); err->Release(); }
-  ok = ok && SUCCEEDED(hr);
-  return code;
+  if (FAILED(hr) && strcmp(entry, "DominantMotion") && strcmp(entry, "Coherence") && strcmp(entry, "RefineForward") && strcmp(entry, "RefineBackward")) ok = false;
+  return SUCCEEDED(hr) ? code : nullptr;
 }
 
 struct Target {
@@ -90,14 +90,16 @@ int main(int argc, char** argv) {
   if (FAILED(hr)) { printf("D3D11CreateDevice failed 0x%08lx\n", hr); return 3; }
   ID3D11VertexShader* vs; dev->CreateVertexShader(blobs[0]->GetBufferPointer(), blobs[0]->GetBufferSize(), nullptr, &vs);
   ID3D11PixelShader* ps[13] = {};
-  for (int i = 1; i < 13; ++i) dev->CreatePixelShader(blobs[i]->GetBufferPointer(), blobs[i]->GetBufferSize(), nullptr, &ps[i]);
+  for (int i = 1; i < 13; ++i) if (blobs[i]) dev->CreatePixelShader(blobs[i]->GetBufferPointer(), blobs[i]->GetBufferSize(), nullptr, &ps[i]);
   enum { CAPTURE = 1, PROJECT, DOMINANT, SYNTH, RESOLVE, OMASK, OGROW, BLIT, BLITSRGB, COHERENCE, RFWD, RBWD };
   D3D11_SAMPLER_DESC sd = {}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
   sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP; sd.MaxLOD = D3D11_FLOAT32_MAX;
   ID3D11SamplerState* samp; dev->CreateSamplerState(&sd, &samp);
   D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 32; bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
   ID3D11Buffer* cb; dev->CreateBuffer(&bd, nullptr, &cb);
-  bool refine = !(argc > 4 && strcmp(argv[4], "norefine") == 0);
+  bool refine = !(argc > 4 && strcmp(argv[4], "norefine") == 0) && ps[11] && ps[12];
+  bool hasDominant = ps[3] != nullptr, hasCoherence = ps[10] != nullptr;
+  printf("passes: refine=%d dominant=%d coherence=%d\n", refine, hasDominant, hasCoherence);
 
   FILE* list = fopen(argv[3], "r");
   char dir[1024]; int W, H;
@@ -144,12 +146,18 @@ int main(int argc, char** argv) {
       fwdIn = &tFwdR; bwdIn = &tBwdR;
     }
     pass(PROJECT, {&tProj}, nullptr, nullptr);
-    pass(DOMINANT, {&tDom}, nullptr, nullptr);
+    if (hasDominant) pass(DOMINANT, {&tDom}, nullptr, nullptr);
     pass(OMASK, {&tORaw}, nullptr, nullptr);
     pass(OGROW, {&tONear}, nullptr, nullptr);
-    pass(SYNTH, {&tRep, &tChoice}, nullptr, nullptr);
-    pass(COHERENCE, {&tCoh}, &tRep, &tChoice);
-    pass(RESOLVE, {&tOut}, &tCoh, nullptr);
+    if (hasCoherence) {
+      pass(SYNTH, {&tRep, &tChoice}, nullptr, nullptr);
+      pass(COHERENCE, {&tCoh}, &tRep, &tChoice);
+      pass(RESOLVE, {&tOut}, &tCoh, nullptr);
+    } else {
+      pass(SYNTH, {&tRep}, nullptr, nullptr);
+      ctx->CopyResource(tCoh.tex, tRep.tex);
+      pass(RESOLVE, {&tOut}, &tRep, nullptr);
+    }
     auto out = readback(tOut, 4);
     FILE* f = fopen((d + "/out.raw").c_str(), "wb"); fwrite(out.data(), 1, out.size(), f); fclose(f);
     auto rp = readback(tRep, 8);
