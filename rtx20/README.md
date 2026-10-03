@@ -1,6 +1,32 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## 2.8.5 Fix 27 — DX12 games adopted at Present, better flow (current)
+## 2.8.5 Fix 28 — Vulkan, and objects that stay whole (current)
+
+`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-Test.zip`: everything in
+Fix27, plus:
+
+- **Vulkan games** (e.g. Red Dead Redemption 2 in Vulkan mode).
+  - The module registers itself as a Vulkan layer for the game's process only.
+    Nothing is installed system-wide or written to the registry.
+  - A D3D11 bridge (shared textures and a shared fence) runs the same optical
+    flow and synthesis as for DX11/DX12.
+  - Requirements: install as usual (`version.dll` or an ASI loader), and do not
+    run the game as administrator.
+  - `Vulkan=0` turns it off.
+  - `Test\RTX20_VulkanLayerTest.exe` checks the Vulkan path on your PC.
+- **Fewer fragments in camera turns.** NVIDIA's optical flow drags thin or
+  small objects (helmet crests, sword tips, heads) to the camera's motion and
+  blends motions across their outlines, so synthesis tore them apart.
+  - Two new passes check every flow vector against the frames and replace
+    such vectors with a nearby motion that matches.
+  - Test of a thin crest over a 20-pixel pan, wrong crest pixels: 252 → 25
+    (blended flow), 146 → 56 (dragged flow).
+  - `FlowRefine=0` turns it off.
+- Details, limits and exactly what was tested: `FIX28_NOTES.md`,
+  `FIX28_COMPARE.png`.
+- Not run on Windows or a GPU here.
+
+## 2.8.5 Fix 27 — DX12 games adopted at Present, better flow (previous)
 
 `SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix27-Test.zip`: everything in
 Fix26, plus:
