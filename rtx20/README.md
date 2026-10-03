@@ -1,6 +1,40 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## 2.8.5 Fix 25 — character edges, speed, compatibility (current)
+## 2.8.5 Fix 26 — fragments around characters, swords, HUD, roofs (current)
+
+`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix26-Test.zip`: everything in
+Fix25, plus fixes for the Witcher 3 report on Fix24 (RTX 2080, about 30 FPS):
+sword pommels and Geralt's face breaking into fragments, HUD labels smeared,
+debris along roofs during fast camera turns. RTX 20 and RTX 30 alike.
+
+- **Full-resolution optical flow at low frame rates (the main cause).**
+  Synthesis alone used the whole 10% GPU budget, so automatic flow fell to
+  half resolution, whose 8-pixel cells are wider than the pommels, hair and
+  HUD letters; it saved almost nothing (2.2 ms against SLOW's 2.4 ms per pair
+  in the log). `GpuBudget=auto` is now 20%, and half resolution is chosen for
+  the budget only when measured clearly cheaper than MEDIUM. `GpuBudget=10`
+  restores the old limit.
+- **New Coherence pass.** Isolated per-pixel decisions are replaced by their
+  neighbourhood's; regions without a majority become a soft patch instead of
+  fragments; the bands beside thin objects are filled from the background
+  instead of the misplaced current frame.
+- **Textured matches count as evidence**, so smooth sky no longer paints over
+  thin detail that the flow cannot see.
+- Rebuilt from the recording (production shader code on the CPU, a stand-in
+  for NVIDIA's flow): with full-resolution flow the pommels, the face and the
+  HUD labels stay intact. New regression group: 598 → 428 wrong pixels beside
+  a pommel over a fast pan with 8-pixel cells.
+- Not run on Windows or a GPU here. Please send `nvsmooth30.log` (look for
+  `occlusion_aware_v10` and `flow=high (SLOW)`/`flow=medium` at ~30 FPS).
+
+Files:
+
+- `FIX26_NOTES.md`: causes, changes, measurements, limits.
+- `FIX26_COMPARE.png`: in-game Fix24 frames from the recording, Fix25 and
+  Fix26 reconstructions at half and full flow resolution.
+- `DX12-Preview2-Fix26.patch`: source and document difference from Fix25.
+
+## 2.8.5 Fix 25 — character edges, speed, compatibility (previous)
 
 `SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix25-Test.zip`: everything in
 Fix24, plus fixes for the three reports on it (RTX 20 and RTX 30 alike).

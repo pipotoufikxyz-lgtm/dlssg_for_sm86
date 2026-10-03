@@ -1,0 +1,1262 @@
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/BUILD.md Fix26/BUILD.md
+--- Fix25/BUILD.md	2026-09-28 21:59:12.000000000 +0000
++++ Fix26/BUILD.md	2026-10-03 01:28:10.000000000 +0000
+@@ -9,7 +9,7 @@
+ 
+ ```sh
+ python source/build_release.py --zig /absolute/path/to/zig --glslang /absolute/path/to/glslangValidator
+-python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix25-Test.zip
++python source/package_release.py --output /absolute/path/to/SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix26-Test.zip
+ ```
+ 
+ The first command builds both runtime carriers, diagnostics, installer, Manager,
+@@ -42,7 +42,7 @@
+ Use `--cxx /absolute/path/to/x86_64-w64-mingw32-clang++` instead of `--zig`.
+ Keep the target-prefixed driver filename. On Linux, if the dynamic loader cannot
+ resolve the bundled compiler libraries, set `LD_LIBRARY_PATH` to that toolchain's
+-`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix25
++`lib` directory. Fix8 was built using LLVM-MinGW 20260922 (UCRT); Fix9 to Fix26
+ were built using LLVM-MinGW 20250924 (UCRT), as recorded in the build reports.
+ 
+ Use `--ubsan-only` only when the inherited ASan runtime is incompatible with the
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/CHANGELOG_RTX20.md Fix26/CHANGELOG_RTX20.md
+--- Fix25/CHANGELOG_RTX20.md	2026-09-28 21:59:12.000000000 +0000
++++ Fix26/CHANGELOG_RTX20.md	2026-10-03 01:28:10.000000000 +0000
+@@ -1,3 +1,17 @@
++# Fix26 fragments around characters, swords, HUD and roofs
++
++See FIX26_NOTES.md. Witcher 3 (RTX 2080, nvsmooth30_62.log): synthesis alone exceeded the 10%
++budget, so automatic flow sat at half resolution (8-pixel cells) and pommels, hair and HUD
++letters broke apart. GpuBudget auto is now 20%; half resolution is chosen for the budget only
++when measured at least 25% and 0.5 ms cheaper than MEDIUM. New Coherence pass (Synthesize
++writes its per-pixel interpretation as a second target): isolated decisions replaced by the
++neighbourhood majority (static detail, overlays and crossing lines kept), no-majority regions
++rendered along the mean motion and low-passed, cluster-mean motion along soft edges, undecided
++band pixels beside thin objects filled from the background end along the window motion.
++Textured two-frame matches along the window's foreground motion count as crossings. New
++regression group (pommel over a fast pan, 8-pixel cells): 598 -> 428 wrong pixels outside the
++object; smeared-silhouette group 494 -> 417. Eleven entries compile without warnings.
++
+ # Fix25 character edges, asynchronous flow, compatibility
+ 
+ See FIX25_NOTES.md. DominantMotion pass (reciprocal window motion and second motion);
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/FIX26_NOTES.md Fix26/FIX26_NOTES.md
+--- Fix25/FIX26_NOTES.md	1970-01-01 00:00:00.000000000 +0000
++++ Fix26/FIX26_NOTES.md	2026-10-03 01:27:12.000000000 +0000
+@@ -0,0 +1,135 @@
++# Fix 26 — fragments around characters, swords, HUD and roofs
++
++Runtime version: `2.8.5-rtx20-rtx30-dx12-preview2-fix26-test`. The log shows
++`artifact_guard=occlusion_aware_v10`. RTX 20 and RTX 30 share all changes.
++This is a test build: it has not run on Windows or on an NVIDIA GPU here.
++
++The report behind this build (Witcher 3 next-gen, DX12, RTX 2080, 1080p,
++about 30 real FPS, `nvsmooth30_62.log` from 2.8.5 Fix24, and a 60 FPS screen
++recording): "artifacting still there, and seems a bit worse in some cases —
++around Geralt's head, the sword, the UI, and when moving the camera up and
++down over roofs".
++
++## 1. What the recording shows
++
++Stepping the recording frame by frame, every second frame (the generated
++one) breaks up while the camera turns:
++
++- the two sword pommels behind Geralt's shoulders shatter into fragments,
++  sometimes with a ghost copy beside them;
++- pieces of Geralt's face and hair are torn out;
++- the HUD labels (`10:07 AM / CLEAR`, the `1016` crowns panel) are smeared
++  sideways by the sky moving behind them;
++- roof edges and the top screen edge leave light and dark debris.
++
++## 2. Why
++
++The log explains most of it:
++
++| | |
++|---|---|
++| Synthesis GPU time per pair | about 3.6 ms (32.4 s for 8,901 pairs) |
++| GPU budget (`GpuBudget=auto`, 10% of 33 ms) | 3.3 ms |
++| Flow mode for most pairs | half resolution (5,919 of 8,902) |
++| Measured pair cost: SLOW / MEDIUM / half | 2.4 / 3.9 / 2.2 ms |
++
++Synthesis alone exceeded the whole budget, so every automatic choice ended at
++half-resolution optical flow (8-pixel cells), re-measuring SLOW and MEDIUM
++every few seconds (the log flips between them all the time). Half resolution
++saved almost nothing here, but its cells are wider than the pommels, the hair
++strands and the HUD letters. The flow then carries only the sky's motion
++there, and the synthesis had no motion that could draw these objects.
++
++The same frames were rebuilt from the recording: the production shader code
++runs on the CPU (as in the regression tests) on real frame pairs, with a
++regularised block matcher standing in for NVIDIA's optical flow. With 8-pixel
++cells it reproduces the in-game fragments; with 4-pixel (full-resolution)
++cells the pommels, the face and the HUD labels come out intact with the very
++same shader (`FIX26_COMPARE.png`).
++
++What remained at full resolution, and what half resolution still shows:
++
++- **Mixed per-pixel decisions.** Each pixel picks its own interpretation.
++  Where several explain it about equally (smooth sky behind detail, noisy
++  vectors), neighbouring pixels picked different motions, one-sided fills
++  and fallbacks: up to seven motions within a few pixels at one pommel.
++- **Sky painted into thin detail.** At a pommel, the sky's motion matches
++  (smooth sky matches nearly anywhere) and has flow support; the pommel's
++  own motion matches too, but no flow cell supports it. The sky won.
++- **Ghost stripes beside thin objects.** In the bands a pommel or grip
++  reveals and covers, nothing validated, and Resolve fell back to the
++  unwarped current frame, misplaced by half the pan (16-20 px).
++
++## 3. What changed
++
++- **Flow policy (the main fix).**
++  - `GpuBudget=auto` is now 20% of the real frame time (6.7 ms at 30 FPS).
++  - Half-resolution flow is chosen for the budget only when it was measured
++    clearly cheaper than MEDIUM (at least 25% and 0.5 ms less).
++  - In the reported case this keeps full-resolution flow: SLOW (2.4 ms) below
++    40 FPS, MEDIUM otherwise. Half resolution is still used automatically at
++    58 real FPS and above (small motion per frame), and `FlowResolution=half`
++    still forces it.
++- **New Coherence pass** (after Synthesize, before Resolve). Synthesize now
++  also writes, per pixel, the interpretation it used (motion, kind, weight).
++  Coherence looks at 32 neighbours:
++  - a decision shared by few neighbours, beside a clear majority, is replaced
++    by the majority's interpretation — unless it explains the pixel clearly
++    better, is a confident crossing object with line support (wires, poles),
++    is a static overlay, or is static detail identical in both frames;
++  - where no interpretation holds a majority, the result is rendered along
++    the neighbourhood's mean motion and lightly low-passed: a soft, motion-
++    blur-like patch instead of high-frequency fragments;
++  - small motion differences inside one cluster (noisy vectors along soft
++    cloud edges) use the cluster's mean motion when it matches as well;
++  - pixels without any decision in the bands beside thin objects are filled
++    from the real frame along the window's background motion, from the end
++    that continues the neighbours (the other end shows the object). Never
++    without a valid background motion (corrupted flow, scene cuts), never
++    next to static overlays.
++- **Textured matches count as evidence.** A tight two-frame match of textured
++  content along the window's own foreground motion (the clearly separate
++  second motion) counts as a crossing even without flow support; smooth sky
++  matching along the background motion no longer outranks it.
++- Synthesize has a single return (the helper is inlined into the entry), so
++  D3DCompiler47 compiles all eleven entries without warnings.
++
++## 4. Measured
++
++Shader regression suite: 26 groups pass (one new). Numbers that changed:
++
++| Test | Fix25 | Fix26 |
++|---|---|---|
++| Pommel and grip over a 40 px pan, 8-pixel cells: wrong pixels outside the object | 598 | 428 |
++| Same, object pixels | 202 / 360 | 198 / 360 |
++| Same, flow blind to the object: outside / object | 958 / 351 | 702 / 351 |
++| Character with blade, smeared flow (Fix25 group) | 494 | 417 |
++| All other groups | unchanged | unchanged |
++
++The object itself stays hard to draw from 8-pixel cells (see the last rows):
++that is why the flow policy now keeps full resolution at low frame rates.
++
++Real Witcher 3 frames from the recording (12 pairs, see
++`FIX26_COMPARE.png`): with full-resolution flow the pommels, Geralt's face and
++the HUD labels are intact where the in-game Fix24 frames and the
++half-resolution reconstructions break them.
++
++Compilation: all eleven entries compile with d3dcompiler_47 (O3, no warnings,
++12.5 s for all under Wine). GPU cost of the new pass: 32 neighbour loads per
++pixel plus resampling only where a decision is replaced (estimated 0.2-0.4 ms
++at 1080p on an RTX 2080; not measured on a GPU).
++
++## 5. Limits
++
++- Nothing here ran on Windows or an NVIDIA GPU. NVOF was replaced by a
++  stand-in; real NVOF vectors differ.
++- At half resolution (forced, or at 58+ real FPS) objects narrower than
++  8 pixels can still lose pieces during fast turns.
++- The default budget doubles: in a GPU-bound game, frame generation may take
++  up to 20% of each real frame's time. `GpuBudget=10` restores Fix25's limit
++  (and its half-resolution flow in such games).
++- Reports from the other repository's issue tracker could not be read from
++  this session.
++
++Please send `nvsmooth30.log` from Fix26: look for `flow=high (SLOW)` or
++`flow=medium` staying put at about 30 FPS, and `occlusion_aware_v10`.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/MANUAL_INSTALL.md Fix26/MANUAL_INSTALL.md
+--- Fix25/MANUAL_INSTALL.md	2026-09-28 21:59:12.000000000 +0000
++++ Fix26/MANUAL_INSTALL.md	2026-10-03 01:28:10.000000000 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.5-rtx20-rtx30-dx12-preview2-fix25-test` and `artifact_guard=occlusion_aware_v9` in the log. See FIX25_NOTES.md (character edges, asynchronous flow, shader cache, anti-cheat modules), FIX24_NOTES.md (image quality), FIX23_NOTES.md (retry drops, probe, log location), FIX22_NOTES.md (freezes, guard across resizes), FIX21_NOTES.md (image quality), FIX20_NOTES.md (GPU-bound games), FIX19_NOTES.md (crosshair/HUD), FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.5-rtx20-rtx30-dx12-preview2-fix26-test` and `artifact_guard=occlusion_aware_v10` in the log. See FIX26_NOTES.md (fragments around characters, swords, HUD and roofs; flow policy, Coherence pass), FIX25_NOTES.md (character edges, asynchronous flow, shader cache, anti-cheat modules), FIX24_NOTES.md (image quality), FIX23_NOTES.md (retry drops, probe, log location), FIX22_NOTES.md (freezes, guard across resizes), FIX21_NOTES.md (image quality), FIX20_NOTES.md (GPU-bound games), FIX19_NOTES.md (crosshair/HUD), FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v9. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/Manual/README.md Fix26/Manual/README.md
+--- Fix25/Manual/README.md	2026-09-28 22:06:00.000000000 +0000
++++ Fix26/Manual/README.md	2026-10-03 01:36:54.000000000 +0000
+@@ -9,7 +9,7 @@
+ uninstaller remain correct. Manual copying does not create an uninstall receipt.
+ See README.md for the DirectX 11 / DirectX 12 SDR requirements and F11 toggle.
+ 
+-For this release, confirm `2.8.5-rtx20-rtx30-dx12-preview2-fix25-test` and `artifact_guard=occlusion_aware_v9` in the log. See FIX25_NOTES.md (character edges, asynchronous flow, shader cache, anti-cheat modules), FIX24_NOTES.md (image quality), FIX23_NOTES.md (retry drops, probe, log location), FIX22_NOTES.md (freezes, guard across resizes), FIX21_NOTES.md (image quality), FIX20_NOTES.md (GPU-bound games), FIX19_NOTES.md (crosshair/HUD), FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
++For this release, confirm `2.8.5-rtx20-rtx30-dx12-preview2-fix26-test` and `artifact_guard=occlusion_aware_v10` in the log. See FIX26_NOTES.md (fragments around characters, swords, HUD and roofs; flow policy, Coherence pass), FIX25_NOTES.md (character edges, asynchronous flow, shader cache, anti-cheat modules), FIX24_NOTES.md (image quality), FIX23_NOTES.md (retry drops, probe, log location), FIX22_NOTES.md (freezes, guard across resizes), FIX21_NOTES.md (image quality), FIX20_NOTES.md (GPU-bound games), FIX19_NOTES.md (crosshair/HUD), FIX18_NOTES.md (RTX 30), FIX17_NOTES.md (performance guard), FIX16_NOTES.md (10-bit SDR) and FIX15_NOTES.md (GpuBudget, ExclusiveFullscreen).
+ The real frame waits until the generated frame has been visible for half a real-frame interval (VSync games: consecutive refreshes); generation pauses when the game reaches the refresh rate. Pacing=off restores Fix12 immediate presentation.
+ For the first artifact comparison keep your existing limiter/VSync settings; use borderless.
+ No fixed FPS limiter is added; keep your own frame cap (in-game or RTSS) at the base rate you want, and each generated frame is shown for half a real-frame interval. Look for artifact_guard=occlusion_aware_v9. Optional nvsmooth30.ini (FlowResolution=auto|full|half): see nvsmooth30.example.ini. Pacing=auto|low_latency|smooth|vblank|off, FlowQuality=auto|high|medium and GenerateAboveRefresh=0|1 are also read there. See FIX14_NOTES.md for pacing, quality and limits.
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/README.md Fix26/README.md
+--- Fix25/README.md	2026-09-28 21:59:12.000000000 +0000
++++ Fix26/README.md	2026-10-03 01:28:10.000000000 +0000
+@@ -1,4 +1,26 @@
+-# SmoothMotion 2.8.5 RTX20/RTX30 Fix 25 — character edges, speed, compatibility
++# SmoothMotion 2.8.5 RTX20/RTX30 Fix 26 — fragments around characters, swords, HUD, roofs
++
++Fix26 targets the Witcher 3 report on Fix24 (RTX 2080, ~30 FPS): pommels and
++Geralt's face breaking into fragments, HUD labels smeared, debris along roofs
++during fast camera turns.
++
++- **Full-resolution optical flow at low frame rates.** Synthesis alone used
++  the whole 10% GPU budget, so automatic flow fell to half resolution, whose
++  8-pixel cells cannot follow pommels, hair or HUD letters (and saved almost
++  nothing: 2.2 ms against SLOW's 2.4 ms per pair in the log). The default
++  budget is now 20%, and half resolution is chosen for the budget only when
++  measured clearly cheaper than MEDIUM.
++- **New Coherence pass.** Isolated per-pixel decisions are replaced by their
++  neighbourhood's; regions without a majority become a soft patch instead of
++  fragments; bands beside thin objects are filled from the background
++  instead of the misplaced current frame.
++- **Textured matches count.** Detail matching tightly along the window's
++  foreground motion is no longer overruled by smooth sky.
++
++See `FIX26_NOTES.md` and `FIX26_COMPARE.png`. Not run on Windows or a GPU
++here.
++
++## Fix 25 (previous)
+ 
+ Fix25 targets the three reports on Fix24 (RTX 20 and RTX 30 alike):
+ 
+@@ -117,7 +139,7 @@
+ 3. Use DirectX 11 or DirectX 12 (windowed, borderless or exclusive fullscreen), SDR, HDR off, and in-game
+    frame generation off. For uncapped testing remove the external limiter and
+    disable in-game/driver VSync. Engine locks are not removed. F11 toggles interpolation.
+-4. Confirm `2.8.5-rtx20-rtx30-dx12-preview2-fix25-test`,
++4. Confirm `2.8.5-rtx20-rtx30-dx12-preview2-fix26-test`,
+    `artifact_guard=occlusion_aware_v9`, `Asynchronous flow ready` (or the reason it is unavailable), a `GPU budget:`, a `presentation=` and a `spacing:` line in `nvsmooth30.log`. Compare F11 on/off
+    in the same scene, resolution, graphics settings and limiter configuration.
+ 5. Run `Test/RTX20_DX12_SmokeTest.exe` for its 24-second resize/queue test. Leave
+@@ -142,7 +164,7 @@
+ | Pacing | Below the refresh rate the real Present waits until the generated frame has been visible for half a real-frame interval (timed or pipelined; the wait never deliberately lowers the game's frame rate). VSync games: both frames with interval 1. At or above the refresh rate: generation pauses. `Pacing=off`: Fix12 immediate presentation |
+ | Tearing | Only valid interval-0, windowed ALLOW_TEARING requests are admitted |
+ | Sync interval | 0–4; intervals 2–4 (30 FPS locks) share the game's refreshes between the generated and real frame |
+-| GPU budget | `GpuBudget` percent of the real frame time (default 10); `0` = unlimited |
++| GPU budget | `GpuBudget` percent of the real frame time (default 20 since Fix26, 10 before); `0` = unlimited |
+ | Unsupported | Vulkan, OpenGL, HDR/FP16, DX12 MSAA, partial/scroll presents, protected content, multiple presentation queues/GPU nodes, DX11 below feature level 11.0 |
+ | Validation | Fix16 Windows/GPU execution, displayed output and performance remain unverified |
+ 
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/VALIDATION.md Fix26/VALIDATION.md
+--- Fix25/VALIDATION.md	2026-09-28 21:59:12.000000000 +0000
++++ Fix26/VALIDATION.md	2026-10-03 01:28:10.000000000 +0000
+@@ -1,4 +1,16 @@
+-# Fix25 validation and limits
++# Fix26 validation and limits
++
++Fix26 changes synthesis (Synthesize writes a second target, new Coherence pass, eleven HLSL
++entries; artifact_guard=occlusion_aware_v10) and the flow policy (GpuBudget auto 20%; half
++resolution for the budget only when measured clearly cheaper). 26 shader behaviour groups pass
++in optimized and ASan/UBSan builds; the new group (textured pommel and grip over a 40-pixel pan,
++8-pixel cells) has 428 wrong pixels outside the object (Fix25: 598) and 198 of 360 object
++pixels (Fix25: 202); the smeared-silhouette group 417 (Fix25: 494). New policy tests: default
++budget, half resolution only when measured cheaper. Real Witcher 3 frames from the user's
++recording (12 pairs; production shader code on the CPU, a regularised block matcher standing in
++for NVOF): full-resolution flow keeps the pommels, Geralt's face and the HUD labels intact
++(FIX26_COMPARE.png). All entries compile with d3dcompiler_47 under Wine (O3, no warnings,
++12.5 s in total). Nothing ran on Windows or a GPU; the Coherence pass's GPU cost is estimated.
+ 
+ Fix25 changes synthesis (new DominantMotion pass, Synthesize, Resolve, OverlayGrow;
+ artifact_guard=occlusion_aware_v9, ten HLSL entries) and the runtime (asynchronous optical
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/nvsmooth30.example.ini Fix26/nvsmooth30.example.ini
+--- Fix25/nvsmooth30.example.ini	2026-09-28 21:39:56.000000000 +0000
++++ Fix26/nvsmooth30.example.ini	2026-10-03 00:55:14.000000000 +0000
+@@ -33,7 +33,10 @@
+ ; time. Automatic flow settings pick the best mode whose measured cost
+ ; (optical flow + synthesis per pair) fits: SLOW, then MEDIUM, then half
+ ; resolution. Costs are re-measured every 30 seconds.
+-; auto: 10 (e.g. 3.3 ms per pair at a 30 FPS base).
++; Fix26: half resolution is chosen for the budget only when it was measured
++; clearly cheaper than MEDIUM (its 8-pixel cells break hilts, hair and HUD
++; text into fragments at low frame rates).
++; auto: 20 (e.g. 6.7 ms per pair at a 30 FPS base; Fix15-25: 10).
+ ; 0 or off: no limit (Fix14 behaviour: SLOW below 40 FPS).
+ GpuBudget=auto
+ 
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/manager/helper_identity.hpp Fix26/source/manager/helper_identity.hpp
+--- Fix25/source/manager/helper_identity.hpp	2026-09-28 22:05:36.000000000 +0000
++++ Fix26/source/manager/helper_identity.hpp	2026-10-03 01:36:30.000000000 +0000
+@@ -1,5 +1,5 @@
+ #pragma once
+ namespace helper_identity {
+-inline constexpr char installer[]="9168b1d575ee4e25cd7e0700651563da58296ac884a761b1c62fe7e8ac829432";
+-inline constexpr char collector[]="2b6eb5a070cbe82c07c634766e79ee4cb7f6da65e6d325769bc1c879996e2555";
++inline constexpr char installer[]="f87a9fc49f0a655bc0e5175b253348e179f06a84650e9df890114784800e074d";
++inline constexpr char collector[]="8187c158a0ae8a100b23cd1f2f414ffd35ef7d84de97cf6e23e0ab7113f9bf71";
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/manager/manager.cpp Fix26/source/manager/manager.cpp
+--- Fix25/source/manager/manager.cpp	2026-09-28 22:03:46.000000000 +0000
++++ Fix26/source/manager/manager.cpp	2026-10-03 00:52:08.000000000 +0000
+@@ -444,7 +444,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- label(L"Fix 25 \u00b7 RTX 20 / 30",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.5 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
++ label(L"Fix 26 \u00b7 RTX 20 / 30",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.5 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -473,7 +473,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.5-rtx20-rtx30-dx12-preview2-fix25-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.5-rtx20-rtx30-dx12-preview2-fix26-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11 and DirectX 12 SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/motion/identity.hpp Fix26/source/motion/identity.hpp
+--- Fix25/source/motion/identity.hpp	2026-09-28 20:06:56.000000000 +0000
++++ Fix26/source/motion/identity.hpp	2026-10-03 00:52:16.000000000 +0000
+@@ -122,6 +122,8 @@
+ // Exact released 2.8.5 Fix24 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix24v285Native="75f4701da97a2c700e8781fa8888b471a282ca4960b11738cb7cfaf2d47c79a3";
+ inline constexpr const char* releaseRTX20Preview2Fix24v285NativeProxy="645e379e748bef43c084ad6efc8db74cd91203dfa2f46a37abe009a8a0604c7d";
++inline constexpr const char* releaseRTX20Preview2Fix25Native="392ffa45a634f0bfe3c431e079d5e52087a9afbd0d577cf95ff8271d1c72985b";
++inline constexpr const char* releaseRTX20Preview2Fix25NativeProxy="0f39d61fb37de34e8db4428f059e0aef91205af2b7f9489eb9a63ec781945f18";
+ // Exact released Fix24 bytes (published as 2.8.4) retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix24Native="b9c8847c8ed40d6d7f001de353148278ca4ca0ddad725804366b95b288720006";
+ inline constexpr const char* releaseRTX20Preview2Fix24NativeProxy="4aee1bfe9edb32b8d459998e4878c9cb6afa4ddc09db804e86aee557e0d861d2";
+@@ -140,8 +142,8 @@
+ // Exact released Fix19 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix19Native="d01ce8644ceacd5d0c2fbbc4c97f7739e5c2af69e2c8e37fbdcefbf3d9787bfe";
+ inline constexpr const char* releaseRTX20Preview2Fix19NativeProxy="f0ca70280b6e9e9b448e81c040e27fad266af399e03bf5e19cc28b0f489cf07e";
+-inline constexpr std::array<const char*,45> previousNativeProxies{{releaseRTX20Preview2Fix24v285NativeProxy,releaseRTX20Preview2Fix24NativeProxy,releaseRTX20Preview2Fix23NativeProxy,releaseRTX20Preview2Fix22NativeProxy,releaseRTX20Preview2Fix21NativeProxy,releaseRTX20Preview2Fix20NativeProxy,releaseRTX20Preview2Fix19NativeProxy,releaseRTX20Preview2Fix18NativeProxy,releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,55> previousPlugins{{releaseRTX20Preview2Fix24v285Native,releaseRTX20Preview2Fix24Native,releaseRTX20Preview2Fix23Native,releaseRTX20Preview2Fix22Native,releaseRTX20Preview2Fix21Native,releaseRTX20Preview2Fix20Native,releaseRTX20Preview2Fix19Native,releaseRTX20Preview2Fix18Native,releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++inline constexpr std::array<const char*,46> previousNativeProxies{{releaseRTX20Preview2Fix25NativeProxy,releaseRTX20Preview2Fix24v285NativeProxy,releaseRTX20Preview2Fix24NativeProxy,releaseRTX20Preview2Fix23NativeProxy,releaseRTX20Preview2Fix22NativeProxy,releaseRTX20Preview2Fix21NativeProxy,releaseRTX20Preview2Fix20NativeProxy,releaseRTX20Preview2Fix19NativeProxy,releaseRTX20Preview2Fix18NativeProxy,releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,56> previousPlugins{{releaseRTX20Preview2Fix25Native,releaseRTX20Preview2Fix24v285Native,releaseRTX20Preview2Fix24Native,releaseRTX20Preview2Fix23Native,releaseRTX20Preview2Fix22Native,releaseRTX20Preview2Fix21Native,releaseRTX20Preview2Fix20Native,releaseRTX20Preview2Fix19Native,releaseRTX20Preview2Fix18Native,releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/package_release.py Fix26/source/package_release.py
+--- Fix25/source/package_release.py	2026-09-28 20:06:38.000000000 +0000
++++ Fix26/source/package_release.py	2026-10-03 00:52:08.000000000 +0000
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix25-Test'
++archive_root='SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix26-Test'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/build.py Fix26/source/rtx20/build.py
+--- Fix25/source/rtx20/build.py	2026-09-28 20:18:22.000000000 +0000
++++ Fix26/source/rtx20/build.py	2026-10-03 00:52:08.000000000 +0000
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','async_flow.cpp','nvpresent_stub.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.5-rtx20-rtx30-dx12-preview2-fix25-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.5-rtx20-rtx30-dx12-preview2-fix26-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.5-rtx20-rtx30-dx12-preview2-fix25-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.5-rtx20-rtx30-dx12-preview2-fix26-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/interpolator.cpp Fix26/source/rtx20/interpolator.cpp
+--- Fix25/source/rtx20/interpolator.cpp	2026-09-28 20:18:02.000000000 +0000
++++ Fix26/source/rtx20/interpolator.cpp	2026-10-03 01:15:18.000000000 +0000
+@@ -107,7 +107,7 @@
+ // so only the first start of a new version compiles (ShaderCache=0 disables).
+ struct ShaderCache {
+  static constexpr const char* entries[][2]={{"Fullscreen","vs_5_0"},{"Capture","ps_5_0"},{"Project","ps_5_0"},{"DominantMotion","ps_5_0"},{"Synthesize","ps_5_0"},
+-  {"Resolve","ps_5_0"},{"OverlayMask","ps_5_0"},{"OverlayGrow","ps_5_0"},{"Blit","ps_5_0"},{"BlitSrgb","ps_5_0"}};
++  {"Resolve","ps_5_0"},{"OverlayMask","ps_5_0"},{"OverlayGrow","ps_5_0"},{"Blit","ps_5_0"},{"BlitSrgb","ps_5_0"},{"Coherence","ps_5_0"}};
+  static constexpr unsigned count=sizeof entries/sizeof entries[0];
+  static constexpr UINT flags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3;
+  ComPtr<ID3DBlob> code[count];
+@@ -279,12 +279,12 @@
+   CUgraphicsResource graphics{};NvOFGPUBufferHandle ofBuffer{};bool inputReady{};
+   // The same texture opened on the asynchronous flow device (Fix25).
+   ComPtr<ID3D11Texture2D> remote;
+- } frames[2],flows[2],halfFrames[2],halfFlows[2],saved[2],projected,dominant,reprojected,generated,colors[2],overlayRaw,overlayNear;
++ } frames[2],flows[2],halfFrames[2],halfFlows[2],saved[2],projected,dominant,reprojected,generated,colors[2],overlayRaw,overlayNear,choice,coherent;
+  ComPtr<ID3D11Device> device;ComPtr<ID3D11Device1> device1;
+  ComPtr<ID3D11DeviceContext> context;ComPtr<ID3D11DeviceContext1> context1;
+  ComPtr<ID3D11Multithread> gameMultithread;
+  ComPtr<ID3DDeviceContextState> pipeline;
+- ComPtr<ID3D11VertexShader> vertex;ComPtr<ID3D11PixelShader> capture,project,dominantMotion,synthesize,resolve,overlayMask,overlayGrow;
++ ComPtr<ID3D11VertexShader> vertex;ComPtr<ID3D11PixelShader> capture,project,dominantMotion,synthesize,resolve,overlayMask,overlayGrow,coherence;
+  ComPtr<ID3D11ShaderResourceView> snapshotViews[2];
+  ComPtr<ID3D11SamplerState> sampler;ComPtr<ID3D11Buffer> constants,halfConstants;
+  CUcontext cuContext{};NvOFHandle optical{};
+@@ -519,6 +519,10 @@
+   // (half the flow grid), which Synthesize tests silhouettes against.
+   texture(dominant,(grid_extent(width)+1)/2,(grid_extent(height)+1)/2,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
+   texture(reprojected,width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
++  // Fix26: Synthesize's per-pixel interpretation (second render target) and
++  // the Coherence pass's output, which Resolve reads instead of reprojected.
++  texture(choice,width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
++  texture(coherent,width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
+   // Static overlay masks (Fix19): raw, and grown by two pixels (Fix25: with
+   // the 5x5 count of overlay flags that Resolve used to gather itself).
+   texture(overlayRaw,width,height,DXGI_FORMAT_R8_UNORM,true);texture(overlayNear,width,height,DXGI_FORMAT_R16G16_FLOAT,true);
+@@ -532,7 +536,8 @@
+   require(device->CreatePixelShader(ds->GetBufferPointer(),ds->GetBufferSize(),nullptr,&dominantMotion),"CreateDominantMotionShader");
+   require(device->CreatePixelShader(ms->GetBufferPointer(),ms->GetBufferSize(),nullptr,&synthesize),"CreateSynthesisShader");
+   require(device->CreatePixelShader(rs->GetBufferPointer(),rs->GetBufferSize(),nullptr,&resolve),"CreateResolveShader");
+-  auto os=shader("OverlayMask","ps_5_0"),gs=shader("OverlayGrow","ps_5_0");
++  auto os=shader("OverlayMask","ps_5_0"),gs=shader("OverlayGrow","ps_5_0"),cs=shader("Coherence","ps_5_0");
++  require(device->CreatePixelShader(cs->GetBufferPointer(),cs->GetBufferSize(),nullptr,&coherence),"CreateCoherenceShader");
+   require(device->CreatePixelShader(os->GetBufferPointer(),os->GetBufferSize(),nullptr,&overlayMask),"CreateOverlayMaskShader");
+   require(device->CreatePixelShader(gs->GetBufferPointer(),gs->GetBufferSize(),nullptr,&overlayGrow),"CreateOverlayGrowShader");
+   if(msaa){auto bs=shader(srgb?"BlitSrgb":"Blit","ps_5_0");require(device->CreatePixelShader(bs->GetBufferPointer(),bs->GetBufferSize(),nullptr,&blit),"CreateBlitShader");}
+@@ -549,7 +554,7 @@
+   }
+   logf("[rtx20] flow_resolution setting=%s; half-resolution flow %s%s.\n",flow_setting_name(flowSetting),halfFlow?"ready ":"unavailable",
+        halfFlow?(std::to_string(halfWidth)+"x"+std::to_string(halfHeight)+" (8-pixel cells), automatic above "+std::to_string(int(half_flow_enter_fps))+" real FPS").c_str():"");
+-  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v9 (dominant-motion silhouettes and disocclusion fill, soft-content dissolve where no motion validates, static glyph and zero-motion protection, static overlay mask for crosshairs/HUD, flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
++  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v10 (coherence pass against fragments, textured-match foreground priority, dominant-motion silhouettes and disocclusion fill, soft-content dissolve where no motion validates, static glyph and zero-motion protection, static overlay mask for crosshairs/HUD, flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
+  }
+  bool quiesce(){
+   if(cudaFault)return false;
+@@ -591,7 +596,7 @@
+   context->End(timer->stamps[index].Get());
+   if(index==3){context->End(timer->disjoint.Get());timer->pending=true;}
+  }
+- void draw(ID3D11PixelShader* ps,ID3D11RenderTargetView* target,const std::array<ID3D11ShaderResourceView*,9>& srvs,unsigned targetWidth=0,unsigned targetHeight=0,ID3D11Buffer* settings=nullptr){
++ void draw(ID3D11PixelShader* ps,ID3D11RenderTargetView* target,const std::array<ID3D11ShaderResourceView*,10>& srvs,unsigned targetWidth=0,unsigned targetHeight=0,ID3D11Buffer* settings=nullptr,ID3D11RenderTargetView* second=nullptr){
+   // Protect swap/draw/restore as one transaction if the game already enabled
+   // multithread protection. The private DX12 context and CUDA waits are outside.
+   Pipeline scope(context1.Get(),pipeline.Get(),gameMultithread.Get());
+@@ -600,7 +605,8 @@
+   context->VSSetShader(vertex.Get(),nullptr,0);context->PSSetShader(ps,nullptr,0);
+   context->PSSetShaderResources(0,static_cast<UINT>(srvs.size()),srvs.data());auto s=sampler.Get();context->PSSetSamplers(0,1,&s);
+   auto cb=settings?settings:constants.Get();context->PSSetConstantBuffers(0,1,&cb);
+-  D3D11_VIEWPORT vp{0,0,float(targetWidth?targetWidth:width),float(targetHeight?targetHeight:height),0,1};context->RSSetViewports(1,&vp);context->OMSetRenderTargets(1,&target,nullptr);
++  D3D11_VIEWPORT vp{0,0,float(targetWidth?targetWidth:width),float(targetHeight?targetHeight:height),0,1};context->RSSetViewports(1,&vp);
++  ID3D11RenderTargetView* targets[2]{target,second};context->OMSetRenderTargets(second?2:1,targets,nullptr);
+   context->Draw(3,0);context->ClearState();
+  }
+  void log_presentation(Presentation before,double realFps){
+@@ -795,8 +801,10 @@
+    const auto& color=deep?colors:frames;
+    draw(overlayMask.Get(),overlayRaw.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),flow[0].srv.Get(),flow[1].srv.Get(),nullptr,nullptr,nullptr,nullptr},0,0,settings);
+    draw(overlayGrow.Get(),overlayNear.rtv.Get(),{nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,overlayRaw.srv.Get(),nullptr},0,0,settings);
+-   draw(synthesize.Get(),reprojected.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),flow[0].srv.Get(),flow[1].srv.Get(),nullptr,projected.srv.Get(),overlayRaw.srv.Get(),overlayNear.srv.Get(),dominant.srv.Get()},0,0,settings);
+-   draw(resolve.Get(),generated.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),nullptr,nullptr,reprojected.srv.Get(),nullptr,nullptr,overlayNear.srv.Get()},0,0,settings);}
++   draw(synthesize.Get(),reprojected.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),flow[0].srv.Get(),flow[1].srv.Get(),nullptr,projected.srv.Get(),overlayRaw.srv.Get(),overlayNear.srv.Get(),dominant.srv.Get()},0,0,settings,choice.rtv.Get());
++   // Fix26: isolated per-pixel decisions replaced by the neighbourhood's.
++   draw(coherence.Get(),coherent.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),nullptr,nullptr,reprojected.srv.Get(),nullptr,nullptr,overlayNear.srv.Get(),dominant.srv.Get(),choice.srv.Get()},0,0,settings);
++   draw(resolve.Get(),generated.rtv.Get(),{color[0].srv.Get(),color[1].srv.Get(),nullptr,nullptr,coherent.srv.Get(),nullptr,nullptr,overlayNear.srv.Get()},0,0,settings);}
+   stamp(timer,3);
+   generatedReady=true;
+  }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/policy.hpp Fix26/source/rtx20/policy.hpp
+--- Fix25/source/rtx20/policy.hpp	2026-09-28 17:28:16.000000000 +0000
++++ Fix26/source/rtx20/policy.hpp	2026-10-03 00:47:40.000000000 +0000
+@@ -88,18 +88,27 @@
+ // cost depends on the scene. Explicit FlowQuality=high / FlowResolution
+ // settings are always honoured. GpuBudget=0 disables the limit (Fix14).
+ enum class FlowMode { slow, medium, half };
++// Fix26 (Witcher 3, RTX 2080, nvsmooth30_62.log): synthesis alone took about
++// 3.6 ms per pair, over the whole 10% budget (3.3 ms at 30 FPS), so every
++// automatic choice ended at half-resolution flow, re-measuring SLOW and
++// MEDIUM every few seconds. Half resolution saved almost nothing there
++// (SLOW 2.4 ms, MEDIUM 3.9 ms, half 2.2 ms per pair) while its 8-pixel cells
++// cannot follow sword hilts, hair or HUD text: those broke into fragments.
++// The default budget is now 20%, and half resolution is used for the budget
++// only when it was measured to be clearly cheaper than MEDIUM.
++inline constexpr double default_gpu_budget=0.20;
+ inline const char* flow_mode_name(FlowMode m) {return m==FlowMode::slow?"high (SLOW)":m==FlowMode::medium?"medium":"half resolution";}
+ inline double parse_gpu_budget(const wchar_t* value) {
+- if(!value||!*value||setting_equals(value,L"auto"))return 0.10;
++ if(!value||!*value||setting_equals(value,L"auto"))return default_gpu_budget;
+  if(setting_equals(value,L"off")||setting_equals(value,L"unlimited"))return 0;
+  double v=0;unsigned digits=0;
+  for(;*value>=L'0'&&*value<=L'9';++value,++digits)v=v*10+(*value-L'0');
+  if(*value==L'%')++value;
+- if(!digits||*value)return 0.10;
++ if(!digits||*value)return default_gpu_budget;
+  return v<=0?0:(v>=100?1:v/100);
+ }
+ struct FlowBudget {
+- double fraction{0.10};
++ double fraction{default_gpu_budget};
+  std::array<double,3> estimate{-1,-1,-1},observed{-1e9,-1e9,-1e9};
+  std::array<unsigned,3> samples{};
+  // Fix23 (Monster Hunter World log 51): re-measuring a rejected mode costs
+@@ -132,13 +141,22 @@
+   return false;
+  }
+ };
++// Half resolution is worth its lower image quality for the budget only when it
++// is measured to cost clearly less than MEDIUM (at least 25% and 0.5 ms less);
++// unmeasured, it is tried.
++inline bool half_flow_saves(const FlowBudget& budget) {
++ const auto h=FlowBudget::index(FlowMode::half),m=FlowBudget::index(FlowMode::medium);
++ if(budget.samples[h]<FlowBudget::minimum_samples||budget.estimate[h]<0||budget.estimate[m]<0)return true;
++ return budget.estimate[h]<=0.75*budget.estimate[m]&&budget.estimate[m]-budget.estimate[h]>=0.0005;
++}
+ inline FlowMode choose_flow_mode(FlowResolution resolution,bool halfAvailable,FlowQuality quality,bool slowAvailable,
+                                  FlowMode current,double realFps,double interval,FlowBudget& budget,double now) {
+  if(use_half_flow(resolution,halfAvailable,current==FlowMode::half,realFps))return FlowMode::half;
+  if(use_quality_flow(quality,slowAvailable,current==FlowMode::slow,realFps)&&
+     (quality==FlowQuality::high||budget.fits(FlowMode::slow,interval,now,current==FlowMode::slow)))return FlowMode::slow;
+  // MEDIUM over budget: half resolution (automatic resolution only).
+- if(halfAvailable&&resolution==FlowResolution::automatic&&!budget.fits(FlowMode::medium,interval,now,current==FlowMode::medium))
++ if(halfAvailable&&resolution==FlowResolution::automatic&&!budget.fits(FlowMode::medium,interval,now,current==FlowMode::medium)&&
++    half_flow_saves(budget))
+   return FlowMode::half;
+  return FlowMode::medium;
+ }
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/policy_test.cpp Fix26/source/rtx20/policy_test.cpp
+--- Fix25/source/rtx20/policy_test.cpp	2026-09-28 17:28:16.000000000 +0000
++++ Fix26/source/rtx20/policy_test.cpp	2026-10-03 00:47:56.000000000 +0000
+@@ -50,12 +50,12 @@
+  }
+  {
+   // GPU budget (Fix15): parse, then choose the best flow mode that fits.
+-  assert(std::abs(parse_gpu_budget(L"auto")-0.10)<1e-9&&std::abs(parse_gpu_budget(nullptr)-0.10)<1e-9);
++  assert(std::abs(parse_gpu_budget(L"auto")-0.20)<1e-9&&std::abs(parse_gpu_budget(nullptr)-0.20)<1e-9);
+   assert(parse_gpu_budget(L"0")==0&&parse_gpu_budget(L"off")==0&&parse_gpu_budget(L"Unlimited")==0);
+   assert(std::abs(parse_gpu_budget(L"15")-0.15)<1e-9&&std::abs(parse_gpu_budget(L"20%")-0.20)<1e-9);
+-  assert(std::abs(parse_gpu_budget(L"abc")-0.10)<1e-9&&parse_gpu_budget(L"250")==1);
++  assert(std::abs(parse_gpu_budget(L"abc")-0.20)<1e-9&&parse_gpu_budget(L"250")==1);
+   const double interval=1/30.0; // limit 3.33 ms at 10%
+-  FlowBudget budget;double now=100;
++  FlowBudget budget;budget.fraction=0.10;double now=100;
+   auto choose=[&](FlowMode current,FlowQuality q=FlowQuality::automatic,FlowResolution r=FlowResolution::automatic,double rate=30){
+    return choose_flow_mode(r,true,q,true,current,rate,1/rate,budget,now);};
+   // Unknown costs: SLOW is tried first (Fix14 behaviour below 40 FPS).
+@@ -82,6 +82,24 @@
+   // Above 40 FPS SLOW is not used; above 58 FPS half resolution as before.
+   assert(choose(FlowMode::medium,FlowQuality::automatic,FlowResolution::automatic,50)!=FlowMode::slow);
+   assert(choose(FlowMode::medium,FlowQuality::automatic,FlowResolution::automatic,60)==FlowMode::half);
++  // Fix26: half resolution only when it is measured clearly cheaper than
++  // MEDIUM (nvsmooth30_62.log: half 2.2 ms against MEDIUM 3.9 ms saves enough;
++  // a scene where it saves little keeps full-resolution flow).
++  {
++   FlowBudget b;b.fraction=0.10;double t=500;
++   auto pick=[&](FlowMode current){return choose_flow_mode(FlowResolution::automatic,true,FlowQuality::medium,true,current,30,interval,b,t);};
++   for(int i=0;i<6;++i)b.observe(FlowMode::medium,0.0039,t);
++   assert(pick(FlowMode::medium)==FlowMode::half); // half not measured yet: tried
++   for(int i=0;i<6;++i)b.observe(FlowMode::half,0.0022,t);
++   assert(half_flow_saves(b)&&pick(FlowMode::half)==FlowMode::half);
++   FlowBudget c;c.fraction=0.10;
++   for(int i=0;i<6;++i){c.observe(FlowMode::medium,0.0040,t);c.observe(FlowMode::half,0.0036,t);}
++   assert(!half_flow_saves(c));
++   assert(choose_flow_mode(FlowResolution::automatic,true,FlowQuality::medium,true,FlowMode::half,30,interval,c,t)==FlowMode::medium);
++   assert(choose_flow_mode(FlowResolution::automatic,true,FlowQuality::medium,true,FlowMode::medium,30,interval,c,t)==FlowMode::medium);
++   // The default budget: 20% of the real frame interval.
++   FlowBudget d;assert(std::abs(d.limit(interval)-0.2*interval)<1e-12);
++  }
+   // GpuBudget=0: Fix14 behaviour, never over budget.
+   FlowBudget unlimited;unlimited.fraction=0;for(int i=0;i<10;++i)unlimited.observe(FlowMode::slow,0.02,now);
+   assert(choose_flow_mode(FlowResolution::automatic,true,FlowQuality::automatic,true,FlowMode::slow,30,interval,unlimited,now)==FlowMode::slow);
+@@ -340,7 +358,7 @@
+    // Fix23 (Monster Hunter World log 51): a mode far over budget (SLOW 13 ms
+    // at 30 FPS, limit 3.3 ms) is rejected after two pairs, and each failed
+    // re-measurement doubles the wait before the next (30 s, 60 s, ...).
+-   FlowBudget fb;const double iv=1/30.0;
++   FlowBudget fb;fb.fraction=0.10;const double iv=1/30.0;
+    for(int i=0;i<4;++i)fb.observe(FlowMode::slow,0.013,0);
+    assert(!fb.fits(FlowMode::slow,iv,10,false)&&fb.fits(FlowMode::slow,iv,31,false));
+    fb.observe(FlowMode::slow,0.013,31);fb.observe(FlowMode::slow,0.013,31.03);
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/shader_check.cpp Fix26/source/rtx20/shader_check.cpp
+--- Fix25/source/rtx20/shader_check.cpp	2026-09-28 20:10:48.000000000 +0000
++++ Fix26/source/rtx20/shader_check.cpp	2026-10-03 00:52:20.000000000 +0000
+@@ -7,7 +7,7 @@
+  auto dll=LoadLibraryExW(L"d3dcompiler_47.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
+  auto compile=dll?reinterpret_cast<decltype(&D3DCompile)>(GetProcAddress(dll,"D3DCompile")):nullptr;
+  if(!compile){std::puts("D3DCompiler47 unavailable");return 1;}
+- const char* entries[]={"Fullscreen","Capture","Project","DominantMotion","Synthesize","Resolve","Blit","BlitSrgb","OverlayMask","OverlayGrow"};
++ const char* entries[]={"Fullscreen","Capture","Project","DominantMotion","Synthesize","Resolve","Blit","BlitSrgb","OverlayMask","OverlayGrow","Coherence"};
+  for(auto e:entries){ID3DBlob *code=nullptr,*errors=nullptr;
+   auto hr=compile(shader_source,sizeof(shader_source)-1,"sm20.hlsl",nullptr,nullptr,e,!std::strcmp(e,"Fullscreen")?"vs_5_0":"ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+   if(errors){std::puts(static_cast<const char*>(errors->GetBufferPointer()));errors->Release();}
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/shader_regression_test.cpp Fix26/source/rtx20/shader_regression_test.cpp
+--- Fix25/source/rtx20/shader_regression_test.cpp	2026-09-28 21:52:50.000000000 +0000
++++ Fix26/source/rtx20/shader_regression_test.cpp	2026-10-03 01:27:46.000000000 +0000
+@@ -15,7 +15,7 @@
+  const int gw=(w+block-1)/block,gh=(h+block-1)/block;
+  Previous.reset(w,h);Current.reset(w,h);Reprojection.reset(w,h);output.reset(w,h);
+  Forward.reset(gw,gh);Backward.reset(gw,gh);Projected.reset(gw,gh);Dominant.reset((gw+1)/2,(gh+1)/2);
+- OverlayRaw.reset(w,h);OverlayNear.reset(w,h);
++ OverlayRaw.reset(w,h);OverlayNear.reset(w,h);Choice.reset(w,h);
+ }
+ // Output-pixel motion to stored NVOF S10.5 units at the current flow scale.
+ float2 stored(float2 v){return {std::round(v.x/FlowGain),std::round(v.y/FlowGain)};}
+@@ -36,10 +36,20 @@
+  for(int y=0;y<Current.height;++y)for(int x=0;x<Current.width;++x)OverlayRaw.at(x,y)=OverlayMask(pixel(x,y));
+  for(int y=0;y<Current.height;++y)for(int x=0;x<Current.width;++x)OverlayNear.at(x,y)=OverlayGrow(pixel(x,y));
+  for(int y=0;y<Current.height;++y)for(int x=0;x<Current.width;++x){
+-  auto value=Synthesize(pixel(x,y));
+-  for(int c=0;c<4;++c)value[c]=float((_Float16)value[c]);
+-  Reprojection.at(x,y)=value;
+- }
++  auto out=Synthesize(pixel(x,y));auto value=out.color;
++  for(int c=0;c<4;++c){value[c]=float((_Float16)value[c]);out.choice[c]=float((_Float16)out.choice[c]);}
++  for(int c=0;c<4;++c)assert(std::isfinite(out.choice[c]));
++  Reprojection.at(x,y)=value;Choice.at(x,y)=out.choice;
++ }
++ // Fix26: isolated decisions replaced by the neighbourhood's (Coherence);
++ // Resolve reads its output.
++ {Texture2D<float4> coherent;coherent.reset(Current.width,Current.height);
++  for(int y=0;y<Current.height;++y)for(int x=0;x<Current.width;++x){
++   auto value=Coherence(pixel(x,y));
++   for(int c=0;c<4;++c){assert(std::isfinite(value[c]));value[c]=float((_Float16)value[c]);}
++   coherent.at(x,y)=value;
++  }
++  Reprojection=coherent;}
+  for(int y=0;y<Current.height;++y)for(int x=0;x<Current.width;++x){
+   auto c=Resolve(pixel(x,y));output.at(x,y)=c;
+   for(int n=0;n<4;++n)assert(std::isfinite(c[n])&&c[n]>=-0.0001&&c[n]<=1.0001);
+@@ -632,6 +642,37 @@
+   assert(intact*100>=count*85);
+  }
+  pass("static text keeps zero motion supported by one flow direction");
++ {
++  // Fix26 (Witcher 3, nvsmooth30_62.log: sword pommels over a fast camera
++  // turn, half-resolution flow): a textured pommel and grip moving 8 px over
++  // a scene panning 40 px, flow in 8-pixel cells reporting the layer that
++  // covers most of each cell. The bands the pommel and grip reveal and cover
++  // had no valid interpretation and fell back to the unwarped current frame:
++  // ghost rings and stripes 16-20 px to either side (Fix25: 598 wrong pixels
++  // outside the object, 202 of 360 object pixels). Fix26 fills those bands
++  // from the background end along the window's motion. The object itself
++  // stays hard at 8-pixel cells; with cells blind to it (narrower than a
++  // cell everywhere) no candidate carries its motion at all: the reason
++  // automatic flow now keeps full resolution at low frame rates.
++  block=8;
++  auto hilt=[](float x,float y){float dx=x-96,dy=y-40;return dx*dx+dy*dy<=49||(x>=94&&x<98&&y>=46&&y<100);};
++  for(int blind=0;blind<2;++blind){
++   setup(192,112);Texture2D<float4> truth;
++   parallax(hilt,float2(8,0),float2(40,2),truth);
++   if(blind){for(auto& v:Forward.pixels)v=stored({40,2});for(auto& v:Backward.pixels)v=stored({-40,-2});}
++   render();
++   unsigned object=0,objectBad=0,debris=0;
++   for(int y=8;y<104;++y)for(int x=16;x<176;++x){
++    bool near=false;for(int j=-2;j<=2&&!near;++j)for(int i=-2;i<=2&&!near;++i)near=hilt(x+i-4.f,y+j)||hilt(x+i+4.f,y+j)||hilt(x+i,y+j);
++    const bool bad=error(output.at(x,y),truth.at(x,y))>0.12f;
++    if(hilt(x-4.f,y)){++object;objectBad+=bad;}else if(!near)debris+=bad;
++   }
++   std::cout<<"pommel over a fast pan, 8-pixel cells"<<(blind?" blind to it":"")<<": wrong object pixels "<<objectBad<<'/'<<object<<", elsewhere "<<debris<<'\n';
++   if(!blind)assert(objectBad<=200&&debris<=450);
++  }
++  block=4;
++ }
++ pass("small textured object over a fast pan with coarse flow cells");
+  // Corrupted boundary fields must not cause NaN/Inf, OOB loads or alpha damage.
+  setup(131,81);translate(8);std::mt19937 rng(42);
+  for(auto& p:Forward.pixels)p={float(int(rng()%2049)-1024),float(int(rng()%2049)-1024)};
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/shader_source.hpp Fix26/source/rtx20/shader_source.hpp
+--- Fix25/source/rtx20/shader_source.hpp	2026-09-28 22:04:28.000000000 +0000
++++ Fix26/source/rtx20/shader_source.hpp	2026-10-03 01:35:14.000000000 +0000
+@@ -21,6 +21,12 @@
+ // the motion dominating a window of about 64 pixels around the cells, and the
+ // strongest clearly different motion in that window.
+ Texture2D<float4> Dominant : register(t8);
++// Private RGBA16F (Fix26, written by Synthesize as its second target): the
++// interpretation that produced each pixel - xy the motion, z the kind
++// (0 both frames at the midpoint, 1 previous frame only, 2 current frame
++// only, 3 none: Resolve's fallback), w how much of the pixel it explains.
++// The Coherence pass reads it to replace isolated decisions.
++Texture2D<float4> Choice : register(t9);
+ SamplerState LinearClamp : register(s0);
+ // FlowBlock: output pixels per flow cell (4 for full-resolution flow, 8 when
+ // flow is computed at half resolution). FlowGain converts stored S10.5 flow
+@@ -426,7 +432,20 @@
+   float backgroundA=1-smoothstep(tolerance,2.5*tolerance,length(forward.flow-dominant));
+   float backgroundB=1-smoothstep(tolerance,2.5*tolerance,length(backward.flow+dominant));
+   float oneEnd=max(supportA*backgroundB,supportB*backgroundA)*limit*(1-smoothstep(0.02,0.06,cost))*0.9;
+-  float crossing=max(support*(1-smoothstep(0.06,0.25,cost)),oneEnd)*saturate((length(m-dominant)-2)*0.25);
++  float minority=saturate((length(m-dominant)-2)*0.25);
++  float crossing=max(support*(1-smoothstep(0.06,0.25,cost)),oneEnd)*minority;
++  // Fix26 (Witcher 3: sword pommels, hair and HUD text over a fast sky):
++  // detail narrower than a flow cell owns no block vector, so neither end
++  // supports its motion and the sky's flow-supported match won, painting sky
++  // into the pommel in patches. A tight match of textured content at both
++  // ends is strong evidence by itself (smooth sky matches any nearby motion;
++  // detail does not match by chance). It counts as a crossing for the
++  // window's own moving foreground motion (the clearly separate second
++  // motion), never for the dominant motion; screen-fixed HUD keeps the
++  // static-overlay path (a crossing flag would lift Resolve's protection).
++  float textured=(1-smoothstep(0.03,0.07,cost))*smoothstep(0.08,0.2,patch.y)*limit;
++  float foreground=(1-smoothstep(tolerance,2.5*tolerance,length(m-secondMotion)))*(length(secondMotion-dominant)>=4+0.1*length(dominant)?1.0:0.0)*smoothstep(1.0,2.0,speed);
++  crossing=max(crossing,0.95*textured*minority*foreground);
+   // The crossing samples must belong to the moving object: background that
+   // the dominant motion already explains (e.g. beside an object's edge)
+   // cannot claim the object's motion.
+@@ -586,7 +605,8 @@
+  float4 pair=j==0?c.p0:(j==1?c.p1:(j==2?c.p2:c.p3));
+  return k<4?a:(k<8?b:(k<16?((k&4)!=0?float2(pair.z,pair.w):float2(pair.x,pair.y)):float2(0,0)));
+ }
+-float4 Synthesize(Vertex v) : SV_Target {
++float4 synthesizeColor(Vertex v,out float4 choice) {
++ choice=float4(0,0,3,0);
+  float2 p=v.position.xy-0.5, a=p, b=p;
+  // Three fixed-point steps; the third (8 fetches) only where the second
+  // still moved a correspondence, i.e. where the flow is not smooth (Fix25).
+@@ -682,7 +702,11 @@
+   }
+  }
+  // One exit for the three fast paths (a single inlined Catmull-Rom pair).
+- if(steadyMotion)return float4(midpointColor(p,reference),1+overlayFlag);
++ // Fix26: one return (the helper is inlined into Synthesize, and D3DCompiler
++ // warns, X4000, about an early return there).
++ float4 result=float4(0,0,0,0);
++ [branch] if(steadyMotion){choice=float4(reference,0,1);result=float4(midpointColor(p,reference),1+overlayFlag);}
++ else{
+  Ranking ranking;
+  ranking.m0=ranking.m1=ranking.m2=float2(0,0); ranking.c0=ranking.c1=ranking.c2=1e9;
+  // The best clearly deviating flow vector is always validated as well: a thin
+@@ -781,7 +805,7 @@
+  // Fix21: what is still unexplained falls back to the midpoint along the
+  // local motion instead of the unwarped current frame (misplaced by half the
+  // motion), where the scene clearly moves and both frames roughly agree.
+- float weightR=0; float3 refColor=original.rgb;
++ float weightR=0; float3 refColor=original.rgb; float2 refMotion=reference;
+  // Not at static overlays (crosshair, HUD): Resolve keeps those.
+  float nearOverlay=OverlayNear.Load(int3(int2(floor(v.position.xy)),0)).x;
+  [branch] if(weightB+weightO+weightF<0.999&&length(reference)>=1&&nearOverlay<0.5){
+@@ -802,7 +826,7 @@
+   }
+   [branch] if(refCost<1){
+    float3 ra=previousAt(p-hr)*sqrt(gain), rb=currentAt(p+hr)/sqrt(gain);
+-   refColor=0.5*(ra+rb);
++   refColor=0.5*(ra+rb); refMotion=2*hr;
+    weightR=(1-weightB-weightO-weightF)*smoothstep(1.0,3.0,2*length(hr))*(1-smoothstep(0.1,0.25,refCost));
+   }
+  }
+@@ -898,7 +922,23 @@
+  // (the object has left it in both real frames), which Resolve must not
+  // mistake for UI. Flagged by +4 in alpha.
+  float crossingFlag=(bestCrossing>0.5&&weightB>0.5*valid&&keep<0.5)?4:0;
+- return float4(color,max(valid,keep)+overlayFlag+crossingFlag);
++ // Fix26: the interpretation contributing most to this pixel, for Coherence.
++ float wb=(1-keep)*weightB, wo=(1-keep)*weightO, wf=(1-keep)*weightF, wr=(1-keep)*weightR;
++ float top=max(max(wb,wo),max(max(wf,wr),keep));
++ if(top>0.05){
++  if(top==wb)choice=float4(bestMotion,0,top);
++  else if(top==wo)choice=useCurrent?float4(fromCurrent.motion,2,top):float4(fromPrevious.motion,1,top);
++  else if(top==wf)choice=float4(flatMotion,0,top);
++  else if(top==wr)choice=float4(refMotion,0,top);
++  else choice=float4(0,0,2,top);
++ }
++ result=float4(color,max(valid,keep)+overlayFlag+crossingFlag);
++ }
++ return result;
++}
++struct SynthesisOutput { float4 color : SV_Target0; float4 choice : SV_Target1; };
++SynthesisOutput Synthesize(Vertex v) {
++ SynthesisOutput o; o.color=synthesizeColor(v,o.choice); return o;
+ }
+ // Reprojection alpha: confidence (0..1) + 2 overlay flag + 4 crossing flag.
+ float confidenceOf(float w) { w=w>=3.5?w-4:w; return w>=1.5?w-2:w; }
+@@ -968,6 +1008,153 @@
+ // every sample receiving the pixel. The textures hold the backbuffer's bytes
+ // read as UNORM; for an sRGB backbuffer the render target encodes again, so
+ // BlitSrgb decodes first and the bytes come back unchanged.
++// Fix26 (Witcher 3: pommels, hair and roof edges shattered during fast camera
++// turns): Synthesize decides every pixel on its own, and where several
++// interpretations explain a pixel about equally (smooth sky behind detail
++// narrower than a flow cell, noisy block vectors) neighbouring pixels picked
++// different motions, one-sided fills and fallbacks: a salad of fragments
++// from up to seven motions within a few pixels. A decision shared by few of
++// its neighbours, beside a clear majority, is replaced by the majority's
++// interpretation, unless it explains the pixel clearly better or it is a
++// confident crossing object with line support (wires, poles). Resolve then
++// reads this pass's output in place of Synthesize's.
++float4 Coherence(Vertex v) : SV_Target {
++ int2 here=int2(floor(v.position.xy)), last=int2(ImageSize)-1;
++ float2 p=v.position.xy-0.5;
++ float4 result=Reprojection.Load(int3(here,0));
++ float4 own=Choice.Load(int3(here,0));
++ // Up to four clusters of equal kind and motion: weight, motion sum, kind.
++ float weight[4]={0,0,0,0}; float2 sum[4]={float2(0,0),float2(0,0),float2(0,0),float2(0,0)}; float kind[4]={0,0,0,0};
++ float total=0, ownVotes=0, meanWeight=0; float2 meanMotion=float2(0,0);
++ // Undecided pixel (see below): how well each real frame, shifted by half
++ // the window's dominant motion, continues the neighbours that took it.
++ bool undecided=own.z>2.5;
++ float4 window=undecided?dominantAt(p):float4(invalidMotion,invalidMotion,0,0);
++ bool windowValid=window.x<0.5*invalidMotion;
++ float2 hw=windowValid?0.5*window.xy:float2(0,0);
++ float ea=0, eb=0, en=0;
++ // 5x5 neighbourhood, and eight samples four pixels out (fragments of a few
++ // pixels have their majority beyond the 5x5 window).
++ [loop] for(int i=0;i<32;++i){
++  uint u=uint(i<12?i:i+1);
++  int2 o=i<24?int2(int(u%5)-2,int(u/5)-2):(i<28?int2(i==24?4:(i==25?-4:0),i==26?4:(i==27?-4:0)):int2((i&1)!=0?3:-3,(i&2)!=0?3:-3));
++  float4 c=Choice.Load(int3(clamp(here+o,int2(0,0),last),0));
++  if(c.z>2.5||c.w<=0)continue;
++  float w=c.w*(i<24?1.0:0.5); total+=w;
++  if(c.z<0.5){meanMotion+=c.xy*w;meanWeight+=w;}
++  float tolerance=1.5+0.05*length(c.xy);
++  [branch] if(undecided&&windowValid&&i<24&&c.z<0.5&&length(c.xy-window.xy)<tolerance){
++   float2 q=p+float2(o);
++   float3 n=Reprojection.Load(int3(clamp(here+o,int2(0,0),last),0)).rgb;
++   ea+=colorError(previousAt(q-hw),n); eb+=colorError(currentAt(q+hw),n); en+=1;
++  }
++  if(own.z<2.5&&own.z==c.z&&length(own.xy-c.xy)<tolerance)ownVotes+=w;
++  bool placed=false;
++  [unroll] for(int k=0;k<4;++k){
++   if(!placed&&weight[k]>0&&kind[k]==c.z&&length(sum[k]-c.xy*weight[k])<tolerance*weight[k]){weight[k]+=w;sum[k]+=c.xy*w;placed=true;}
++  }
++  [unroll] for(int e=0;e<4;++e){
++   if(!placed&&weight[e]==0){weight[e]=w;sum[e]=c.xy*w;kind[e]=c.z;placed=true;}
++  }
++ }
++ int best=0;
++ [unroll] for(int b=1;b<4;++b)if(weight[b]>weight[best])best=b;
++ if(total<=0.001||weight[best]<=0)return result;
++ float2 m=sum[best]/weight[best]; float side=kind[best];
++ float fraction=weight[best]/total, ownFraction=own.z<2.5?ownVotes/total:0;
++ // No interpretation holds a majority around this pixel (several motions,
++ // fills and fallbacks interleaved): whatever each pixel picked, together
++ // they form fragments. The decisions' colours are low-passed there, a soft
++ // motion-blur-like patch instead of high-frequency debris, in proportion
++ // to the disagreement and only where the colours really disagree (a
++ // uniform area looks the same either way). Static overlays and confident
++ // crossing objects are left alone.
++ float disagreement=smoothstep(0.35,0.6,1-fraction)*(1-smoothstep(0.3,0.5,ownFraction));
++ float3 previousHere=Previous.Load(int3(here,0)).rgb, currentHere=Current.Load(int3(here,0)).rgb;
++ if(own.z<2.5&&own.z!=1&&length(own.xy)<1)disagreement*=smoothstep(0.03,0.06,colorError(previousHere,currentHere));
++ [branch] if(disagreement>0&&!overlayOf(result.w)&&result.w<3.5){
++  float3 blurred=float3(0,0,0), low=float3(1e9,1e9,1e9), high=float3(-1e9,-1e9,-1e9); float blurWeight=0;
++  [unroll] for(int y=-2;y<=2;++y)
++   [unroll] for(int x=-2;x<=2;++x){
++    float4 c=Reprojection.Load(int3(clamp(here+int2(x,y),int2(0,0),last),0));
++    float w=(3-abs(x)*0.5-abs(y)*0.5);
++    blurred+=c.rgb*w; blurWeight+=w; low=min(low,c.rgb); high=max(high,c.rgb);
++   }
++  blurred=blurred/blurWeight;
++  float spread=max(high.x-low.x,max(high.y-low.y,high.z-low.z));
++  float soften=disagreement*smoothstep(0.08,0.2,spread);
++  // Rendered along the mean of the neighbourhood's two-sided motions: a
++  // continuous warp (at worst a smear), with a little of the low-pass.
++  [branch] if(soften>0&&meanWeight>0.5*total){
++   float2 mean=meanMotion/meanWeight;
++   if(inside(p-0.5*mean)&&inside(p+0.5*mean))blurred=lerp(midpointColor(p,mean),blurred,0.35);
++  }
++  result.rgb=lerp(result.rgb,blurred,soften);
++ }
++ // A pixel without any decision (nothing validated it) is Resolve's
++ // fallback: the unwarped current frame, misplaced by half the motion, which
++ // left seams and ghost stripes in the bands thin objects reveal and cover
++ // during fast pans (pommels, grips, roof edges). Where a clear majority of
++ // its neighbours that decided took the window's dominant
++ // (background) motion, the pixel is filled from the real frame along that
++ // motion whose sample blends with them: one end of a band is the
++ // background, the other the occluding object. Without a dominant motion
++ // (corrupted or nonreciprocal flow, scene cuts) nothing is filled.
++ if(undecided){
++  float tolerance=1.5+0.05*length(window.xy);
++  // Not next to static overlays (crosshair, HUD): Resolve keeps those.
++  [branch] if(windowValid&&en>=3&&fraction>=0.6&&side<1.5&&length(window.xy)>=2&&length(m-window.xy)<tolerance&&!overlayOf(result.w)&&OverlayNear.Load(int3(here,0)).x<0.5){
++   // The background end continues the neighbours' results (textured or
++   // not); the other end shows the occluding object.
++   ea=inside(p-hw)?ea/en:9; eb=inside(p+hw)?eb/en:9;
++   float3 fill=ea<=eb?sharpAt(p-hw,false):sharpAt(p+hw,true);
++   float fit=1-smoothstep(0.06,0.15,min(ea,eb));
++   float u=smoothstep(0.6,0.8,fraction)*fit;
++   result=float4(lerp(result.rgb,fill,u),result.w-confidenceOf(result.w)+lerp(confidenceOf(result.w),float(0.9),u));
++  }
++  return result;
++ }
++ // The pixel's own decision is (part of) the majority. Noisy block vectors
++ // still let neighbours pick slightly different motions of that cluster,
++ // which leaves stair-steps along soft edges (cloud borders); the cluster's
++ // mean motion is used where it matches the pixel at least as well.
++ if(own.z==side&&length(own.xy-m)<1.5+0.05*length(m)){
++  [branch] if(own.z<0.5&&length(own.xy-m)>0.75&&!overlayOf(result.w)&&result.w<3.5){
++   float2 h=0.5*m, g=0.5*own.xy;
++   [branch] if(inside(p-h)&&inside(p+h)&&inside(p-g)&&inside(p+g)){
++    float meanCost=colorError(previousAt(p-h),currentAt(p+h)), ownCost=colorError(previousAt(p-g),currentAt(p+g));
++    float u=(1-smoothstep(0.0,0.03,meanCost-ownCost))*own.w;
++    [branch] if(u>0.001)result.rgb=lerp(result.rgb,midpointColor(p,m),u);
++   }
++  }
++  return result;
++ }
++ float t=smoothstep(0.35,0.55,fraction)*(1-smoothstep(0.12,0.3,ownFraction));
++ // Confident crossing objects (alpha +4) with some support along them stay.
++ if(result.w>=3.5&&ownFraction>=0.1)t=0;
++ // Static overlay pixels are Resolve's (the real frame is kept there).
++ if(overlayOf(result.w))t=0;
++ // A pixel kept in place (no motion) that is the same in both real frames
++ // is static detail (HUD strokes, text) however thin: its decision stands.
++ [branch] if(t>0&&own.z<2.5&&own.z!=1&&length(own.xy)<1){
++  t*=smoothstep(0.03,0.06,colorError(previousHere,currentHere));
++ }
++ // The majority's motion must still explain this pixel (two-sided), and not
++ // clearly worse than the pixel's own two-sided decision.
++ [branch] if(t>0&&side<0.5){
++  float2 h=0.5*m;
++  float cost=inside(p-h)&&inside(p+h)?colorError(previousAt(p-h),currentAt(p+h)):1;
++  t*=1-smoothstep(0.12,0.25,cost);
++  [branch] if(own.z<0.5){
++   float2 g=0.5*own.xy;
++   float ownCost=inside(p-g)&&inside(p+g)?colorError(previousAt(p-g),currentAt(p+g)):1;
++   t*=1-smoothstep(0.04,0.1,cost-ownCost);
++  }
++ }
++ if(t<=0.001)return result;
++ float3 color=side<0.5?midpointColor(p,m):(side<1.5?sharpAt(p-0.5*m,false):sharpAt(p+0.5*m,true));
++ return float4(lerp(result.rgb,color,t),result.w);
++}
+ float4 Blit(Vertex v) : SV_Target { return Previous.Load(int3(int2(floor(v.position.xy)),0)); }
+ float srgbToLinear(float c) { return c<=0.04045?c/12.92:pow(abs((c+0.055)/1.055),2.4); }
+ float4 BlitSrgb(Vertex v) : SV_Target {
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/shaders.hlsl Fix26/source/rtx20/shaders.hlsl
+--- Fix25/source/rtx20/shaders.hlsl	2026-09-28 21:52:18.000000000 +0000
++++ Fix26/source/rtx20/shaders.hlsl	2026-10-03 01:15:18.000000000 +0000
+@@ -19,6 +19,12 @@
+ // the motion dominating a window of about 64 pixels around the cells, and the
+ // strongest clearly different motion in that window.
+ Texture2D<float4> Dominant : register(t8);
++// Private RGBA16F (Fix26, written by Synthesize as its second target): the
++// interpretation that produced each pixel - xy the motion, z the kind
++// (0 both frames at the midpoint, 1 previous frame only, 2 current frame
++// only, 3 none: Resolve's fallback), w how much of the pixel it explains.
++// The Coherence pass reads it to replace isolated decisions.
++Texture2D<float4> Choice : register(t9);
+ SamplerState LinearClamp : register(s0);
+ // FlowBlock: output pixels per flow cell (4 for full-resolution flow, 8 when
+ // flow is computed at half resolution). FlowGain converts stored S10.5 flow
+@@ -424,7 +430,20 @@
+   float backgroundA=1-smoothstep(tolerance,2.5*tolerance,length(forward.flow-dominant));
+   float backgroundB=1-smoothstep(tolerance,2.5*tolerance,length(backward.flow+dominant));
+   float oneEnd=max(supportA*backgroundB,supportB*backgroundA)*limit*(1-smoothstep(0.02,0.06,cost))*0.9;
+-  float crossing=max(support*(1-smoothstep(0.06,0.25,cost)),oneEnd)*saturate((length(m-dominant)-2)*0.25);
++  float minority=saturate((length(m-dominant)-2)*0.25);
++  float crossing=max(support*(1-smoothstep(0.06,0.25,cost)),oneEnd)*minority;
++  // Fix26 (Witcher 3: sword pommels, hair and HUD text over a fast sky):
++  // detail narrower than a flow cell owns no block vector, so neither end
++  // supports its motion and the sky's flow-supported match won, painting sky
++  // into the pommel in patches. A tight match of textured content at both
++  // ends is strong evidence by itself (smooth sky matches any nearby motion;
++  // detail does not match by chance). It counts as a crossing for the
++  // window's own moving foreground motion (the clearly separate second
++  // motion), never for the dominant motion; screen-fixed HUD keeps the
++  // static-overlay path (a crossing flag would lift Resolve's protection).
++  float textured=(1-smoothstep(0.03,0.07,cost))*smoothstep(0.08,0.2,patch.y)*limit;
++  float foreground=(1-smoothstep(tolerance,2.5*tolerance,length(m-secondMotion)))*(length(secondMotion-dominant)>=4+0.1*length(dominant)?1.0:0.0)*smoothstep(1.0,2.0,speed);
++  crossing=max(crossing,0.95*textured*minority*foreground);
+   // The crossing samples must belong to the moving object: background that
+   // the dominant motion already explains (e.g. beside an object's edge)
+   // cannot claim the object's motion.
+@@ -584,7 +603,8 @@
+  float4 pair=j==0?c.p0:(j==1?c.p1:(j==2?c.p2:c.p3));
+  return k<4?a:(k<8?b:(k<16?((k&4)!=0?float2(pair.z,pair.w):float2(pair.x,pair.y)):float2(0,0)));
+ }
+-float4 Synthesize(Vertex v) : SV_Target {
++float4 synthesizeColor(Vertex v,out float4 choice) {
++ choice=float4(0,0,3,0);
+  float2 p=v.position.xy-0.5, a=p, b=p;
+  // Three fixed-point steps; the third (8 fetches) only where the second
+  // still moved a correspondence, i.e. where the flow is not smooth (Fix25).
+@@ -680,7 +700,11 @@
+   }
+  }
+  // One exit for the three fast paths (a single inlined Catmull-Rom pair).
+- if(steadyMotion)return float4(midpointColor(p,reference),1+overlayFlag);
++ // Fix26: one return (the helper is inlined into Synthesize, and D3DCompiler
++ // warns, X4000, about an early return there).
++ float4 result=float4(0,0,0,0);
++ [branch] if(steadyMotion){choice=float4(reference,0,1);result=float4(midpointColor(p,reference),1+overlayFlag);}
++ else{
+  Ranking ranking;
+  ranking.m0=ranking.m1=ranking.m2=float2(0,0); ranking.c0=ranking.c1=ranking.c2=1e9;
+  // The best clearly deviating flow vector is always validated as well: a thin
+@@ -779,7 +803,7 @@
+  // Fix21: what is still unexplained falls back to the midpoint along the
+  // local motion instead of the unwarped current frame (misplaced by half the
+  // motion), where the scene clearly moves and both frames roughly agree.
+- float weightR=0; float3 refColor=original.rgb;
++ float weightR=0; float3 refColor=original.rgb; float2 refMotion=reference;
+  // Not at static overlays (crosshair, HUD): Resolve keeps those.
+  float nearOverlay=OverlayNear.Load(int3(int2(floor(v.position.xy)),0)).x;
+  [branch] if(weightB+weightO+weightF<0.999&&length(reference)>=1&&nearOverlay<0.5){
+@@ -800,7 +824,7 @@
+   }
+   [branch] if(refCost<1){
+    float3 ra=previousAt(p-hr)*sqrt(gain), rb=currentAt(p+hr)/sqrt(gain);
+-   refColor=0.5*(ra+rb);
++   refColor=0.5*(ra+rb); refMotion=2*hr;
+    weightR=(1-weightB-weightO-weightF)*smoothstep(1.0,3.0,2*length(hr))*(1-smoothstep(0.1,0.25,refCost));
+   }
+  }
+@@ -896,7 +920,23 @@
+  // (the object has left it in both real frames), which Resolve must not
+  // mistake for UI. Flagged by +4 in alpha.
+  float crossingFlag=(bestCrossing>0.5&&weightB>0.5*valid&&keep<0.5)?4:0;
+- return float4(color,max(valid,keep)+overlayFlag+crossingFlag);
++ // Fix26: the interpretation contributing most to this pixel, for Coherence.
++ float wb=(1-keep)*weightB, wo=(1-keep)*weightO, wf=(1-keep)*weightF, wr=(1-keep)*weightR;
++ float top=max(max(wb,wo),max(max(wf,wr),keep));
++ if(top>0.05){
++  if(top==wb)choice=float4(bestMotion,0,top);
++  else if(top==wo)choice=useCurrent?float4(fromCurrent.motion,2,top):float4(fromPrevious.motion,1,top);
++  else if(top==wf)choice=float4(flatMotion,0,top);
++  else if(top==wr)choice=float4(refMotion,0,top);
++  else choice=float4(0,0,2,top);
++ }
++ result=float4(color,max(valid,keep)+overlayFlag+crossingFlag);
++ }
++ return result;
++}
++struct SynthesisOutput { float4 color : SV_Target0; float4 choice : SV_Target1; };
++SynthesisOutput Synthesize(Vertex v) {
++ SynthesisOutput o; o.color=synthesizeColor(v,o.choice); return o;
+ }
+ // Reprojection alpha: confidence (0..1) + 2 overlay flag + 4 crossing flag.
+ float confidenceOf(float w) { w=w>=3.5?w-4:w; return w>=1.5?w-2:w; }
+@@ -966,6 +1006,153 @@
+ // every sample receiving the pixel. The textures hold the backbuffer's bytes
+ // read as UNORM; for an sRGB backbuffer the render target encodes again, so
+ // BlitSrgb decodes first and the bytes come back unchanged.
++// Fix26 (Witcher 3: pommels, hair and roof edges shattered during fast camera
++// turns): Synthesize decides every pixel on its own, and where several
++// interpretations explain a pixel about equally (smooth sky behind detail
++// narrower than a flow cell, noisy block vectors) neighbouring pixels picked
++// different motions, one-sided fills and fallbacks: a salad of fragments
++// from up to seven motions within a few pixels. A decision shared by few of
++// its neighbours, beside a clear majority, is replaced by the majority's
++// interpretation, unless it explains the pixel clearly better or it is a
++// confident crossing object with line support (wires, poles). Resolve then
++// reads this pass's output in place of Synthesize's.
++float4 Coherence(Vertex v) : SV_Target {
++ int2 here=int2(floor(v.position.xy)), last=int2(ImageSize)-1;
++ float2 p=v.position.xy-0.5;
++ float4 result=Reprojection.Load(int3(here,0));
++ float4 own=Choice.Load(int3(here,0));
++ // Up to four clusters of equal kind and motion: weight, motion sum, kind.
++ float weight[4]={0,0,0,0}; float2 sum[4]={float2(0,0),float2(0,0),float2(0,0),float2(0,0)}; float kind[4]={0,0,0,0};
++ float total=0, ownVotes=0, meanWeight=0; float2 meanMotion=float2(0,0);
++ // Undecided pixel (see below): how well each real frame, shifted by half
++ // the window's dominant motion, continues the neighbours that took it.
++ bool undecided=own.z>2.5;
++ float4 window=undecided?dominantAt(p):float4(invalidMotion,invalidMotion,0,0);
++ bool windowValid=window.x<0.5*invalidMotion;
++ float2 hw=windowValid?0.5*window.xy:float2(0,0);
++ float ea=0, eb=0, en=0;
++ // 5x5 neighbourhood, and eight samples four pixels out (fragments of a few
++ // pixels have their majority beyond the 5x5 window).
++ [loop] for(int i=0;i<32;++i){
++  uint u=uint(i<12?i:i+1);
++  int2 o=i<24?int2(int(u%5)-2,int(u/5)-2):(i<28?int2(i==24?4:(i==25?-4:0),i==26?4:(i==27?-4:0)):int2((i&1)!=0?3:-3,(i&2)!=0?3:-3));
++  float4 c=Choice.Load(int3(clamp(here+o,int2(0,0),last),0));
++  if(c.z>2.5||c.w<=0)continue;
++  float w=c.w*(i<24?1.0:0.5); total+=w;
++  if(c.z<0.5){meanMotion+=c.xy*w;meanWeight+=w;}
++  float tolerance=1.5+0.05*length(c.xy);
++  [branch] if(undecided&&windowValid&&i<24&&c.z<0.5&&length(c.xy-window.xy)<tolerance){
++   float2 q=p+float2(o);
++   float3 n=Reprojection.Load(int3(clamp(here+o,int2(0,0),last),0)).rgb;
++   ea+=colorError(previousAt(q-hw),n); eb+=colorError(currentAt(q+hw),n); en+=1;
++  }
++  if(own.z<2.5&&own.z==c.z&&length(own.xy-c.xy)<tolerance)ownVotes+=w;
++  bool placed=false;
++  [unroll] for(int k=0;k<4;++k){
++   if(!placed&&weight[k]>0&&kind[k]==c.z&&length(sum[k]-c.xy*weight[k])<tolerance*weight[k]){weight[k]+=w;sum[k]+=c.xy*w;placed=true;}
++  }
++  [unroll] for(int e=0;e<4;++e){
++   if(!placed&&weight[e]==0){weight[e]=w;sum[e]=c.xy*w;kind[e]=c.z;placed=true;}
++  }
++ }
++ int best=0;
++ [unroll] for(int b=1;b<4;++b)if(weight[b]>weight[best])best=b;
++ if(total<=0.001||weight[best]<=0)return result;
++ float2 m=sum[best]/weight[best]; float side=kind[best];
++ float fraction=weight[best]/total, ownFraction=own.z<2.5?ownVotes/total:0;
++ // No interpretation holds a majority around this pixel (several motions,
++ // fills and fallbacks interleaved): whatever each pixel picked, together
++ // they form fragments. The decisions' colours are low-passed there, a soft
++ // motion-blur-like patch instead of high-frequency debris, in proportion
++ // to the disagreement and only where the colours really disagree (a
++ // uniform area looks the same either way). Static overlays and confident
++ // crossing objects are left alone.
++ float disagreement=smoothstep(0.35,0.6,1-fraction)*(1-smoothstep(0.3,0.5,ownFraction));
++ float3 previousHere=Previous.Load(int3(here,0)).rgb, currentHere=Current.Load(int3(here,0)).rgb;
++ if(own.z<2.5&&own.z!=1&&length(own.xy)<1)disagreement*=smoothstep(0.03,0.06,colorError(previousHere,currentHere));
++ [branch] if(disagreement>0&&!overlayOf(result.w)&&result.w<3.5){
++  float3 blurred=float3(0,0,0), low=float3(1e9,1e9,1e9), high=float3(-1e9,-1e9,-1e9); float blurWeight=0;
++  [unroll] for(int y=-2;y<=2;++y)
++   [unroll] for(int x=-2;x<=2;++x){
++    float4 c=Reprojection.Load(int3(clamp(here+int2(x,y),int2(0,0),last),0));
++    float w=(3-abs(x)*0.5-abs(y)*0.5);
++    blurred+=c.rgb*w; blurWeight+=w; low=min(low,c.rgb); high=max(high,c.rgb);
++   }
++  blurred=blurred/blurWeight;
++  float spread=max(high.x-low.x,max(high.y-low.y,high.z-low.z));
++  float soften=disagreement*smoothstep(0.08,0.2,spread);
++  // Rendered along the mean of the neighbourhood's two-sided motions: a
++  // continuous warp (at worst a smear), with a little of the low-pass.
++  [branch] if(soften>0&&meanWeight>0.5*total){
++   float2 mean=meanMotion/meanWeight;
++   if(inside(p-0.5*mean)&&inside(p+0.5*mean))blurred=lerp(midpointColor(p,mean),blurred,0.35);
++  }
++  result.rgb=lerp(result.rgb,blurred,soften);
++ }
++ // A pixel without any decision (nothing validated it) is Resolve's
++ // fallback: the unwarped current frame, misplaced by half the motion, which
++ // left seams and ghost stripes in the bands thin objects reveal and cover
++ // during fast pans (pommels, grips, roof edges). Where a clear majority of
++ // its neighbours that decided took the window's dominant
++ // (background) motion, the pixel is filled from the real frame along that
++ // motion whose sample blends with them: one end of a band is the
++ // background, the other the occluding object. Without a dominant motion
++ // (corrupted or nonreciprocal flow, scene cuts) nothing is filled.
++ if(undecided){
++  float tolerance=1.5+0.05*length(window.xy);
++  // Not next to static overlays (crosshair, HUD): Resolve keeps those.
++  [branch] if(windowValid&&en>=3&&fraction>=0.6&&side<1.5&&length(window.xy)>=2&&length(m-window.xy)<tolerance&&!overlayOf(result.w)&&OverlayNear.Load(int3(here,0)).x<0.5){
++   // The background end continues the neighbours' results (textured or
++   // not); the other end shows the occluding object.
++   ea=inside(p-hw)?ea/en:9; eb=inside(p+hw)?eb/en:9;
++   float3 fill=ea<=eb?sharpAt(p-hw,false):sharpAt(p+hw,true);
++   float fit=1-smoothstep(0.06,0.15,min(ea,eb));
++   float u=smoothstep(0.6,0.8,fraction)*fit;
++   result=float4(lerp(result.rgb,fill,u),result.w-confidenceOf(result.w)+lerp(confidenceOf(result.w),float(0.9),u));
++  }
++  return result;
++ }
++ // The pixel's own decision is (part of) the majority. Noisy block vectors
++ // still let neighbours pick slightly different motions of that cluster,
++ // which leaves stair-steps along soft edges (cloud borders); the cluster's
++ // mean motion is used where it matches the pixel at least as well.
++ if(own.z==side&&length(own.xy-m)<1.5+0.05*length(m)){
++  [branch] if(own.z<0.5&&length(own.xy-m)>0.75&&!overlayOf(result.w)&&result.w<3.5){
++   float2 h=0.5*m, g=0.5*own.xy;
++   [branch] if(inside(p-h)&&inside(p+h)&&inside(p-g)&&inside(p+g)){
++    float meanCost=colorError(previousAt(p-h),currentAt(p+h)), ownCost=colorError(previousAt(p-g),currentAt(p+g));
++    float u=(1-smoothstep(0.0,0.03,meanCost-ownCost))*own.w;
++    [branch] if(u>0.001)result.rgb=lerp(result.rgb,midpointColor(p,m),u);
++   }
++  }
++  return result;
++ }
++ float t=smoothstep(0.35,0.55,fraction)*(1-smoothstep(0.12,0.3,ownFraction));
++ // Confident crossing objects (alpha +4) with some support along them stay.
++ if(result.w>=3.5&&ownFraction>=0.1)t=0;
++ // Static overlay pixels are Resolve's (the real frame is kept there).
++ if(overlayOf(result.w))t=0;
++ // A pixel kept in place (no motion) that is the same in both real frames
++ // is static detail (HUD strokes, text) however thin: its decision stands.
++ [branch] if(t>0&&own.z<2.5&&own.z!=1&&length(own.xy)<1){
++  t*=smoothstep(0.03,0.06,colorError(previousHere,currentHere));
++ }
++ // The majority's motion must still explain this pixel (two-sided), and not
++ // clearly worse than the pixel's own two-sided decision.
++ [branch] if(t>0&&side<0.5){
++  float2 h=0.5*m;
++  float cost=inside(p-h)&&inside(p+h)?colorError(previousAt(p-h),currentAt(p+h)):1;
++  t*=1-smoothstep(0.12,0.25,cost);
++  [branch] if(own.z<0.5){
++   float2 g=0.5*own.xy;
++   float ownCost=inside(p-g)&&inside(p+g)?colorError(previousAt(p-g),currentAt(p+g)):1;
++   t*=1-smoothstep(0.04,0.1,cost-ownCost);
++  }
++ }
++ if(t<=0.001)return result;
++ float3 color=side<0.5?midpointColor(p,m):(side<1.5?sharpAt(p-0.5*m,false):sharpAt(p+0.5*m,true));
++ return float4(lerp(result.rgb,color,t),result.w);
++}
+ float4 Blit(Vertex v) : SV_Target { return Previous.Load(int3(int2(floor(v.position.xy)),0)); }
+ float srgbToLinear(float c) { return c<=0.04045?c/12.92:pow(abs((c+0.055)/1.055),2.4); }
+ float4 BlitSrgb(Vertex v) : SV_Target {
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/test_shader.py Fix26/source/rtx20/test_shader.py
+--- Fix25/source/rtx20/test_shader.py	2026-09-28 17:28:16.000000000 +0000
++++ Fix26/source/rtx20/test_shader.py	2026-10-03 00:49:34.000000000 +0000
+@@ -9,7 +9,7 @@
+ body=re.sub(r':\s*register\([^)]+\)', '', shader)
+ body=re.sub(r':\s*(?:SV_\w+|TEXCOORD\d+)', '', body)
+ body=re.sub(r'cbuffer\s+Settings\s*\{([^}]+)\};',r'\1',body)
+-body=body.replace('[unroll]','').replace('[loop]','').replace('[branch]','').replace('.rgb','.rgb()').replace('.xy','.xy()')
++body=body.replace('out float4 choice','float4& choice').replace('[unroll]','').replace('[loop]','').replace('[branch]','').replace('.rgb','.rgb()').replace('.xy','.xy()')
+ results=[]
+ with tempfile.TemporaryDirectory() as tmp:
+  tmp=pathlib.Path(tmp)
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/validate_shaders.py Fix26/source/rtx20/validate_shaders.py
+--- Fix25/source/rtx20/validate_shaders.py	2026-09-28 20:10:48.000000000 +0000
++++ Fix26/source/rtx20/validate_shaders.py	2026-10-03 00:52:20.000000000 +0000
+@@ -5,7 +5,7 @@
+ src=pathlib.Path(__file__).resolve().parent;root=src.parents[1]
+ results=[]
+ with tempfile.TemporaryDirectory() as directory:
+- for entry,stage in [('Fullscreen','vert'),('Capture','frag'),('Project','frag'),('DominantMotion','frag'),('Synthesize','frag'),('Resolve','frag'),('Blit','frag'),('BlitSrgb','frag'),('OverlayMask','frag'),('OverlayGrow','frag')]:
++ for entry,stage in [('Fullscreen','vert'),('Capture','frag'),('Project','frag'),('DominantMotion','frag'),('Synthesize','frag'),('Resolve','frag'),('Blit','frag'),('BlitSrgb','frag'),('OverlayMask','frag'),('OverlayGrow','frag'),('Coherence','frag')]:
+   cmd=[a.glslang,'-D','-V','--auto-map-bindings','-S',stage,'-e',entry,str(src/'shaders.hlsl'),'-o',str(pathlib.Path(directory)/(entry+'.spv'))]
+   result=subprocess.run(cmd,capture_output=True,text=True)
+   if result.returncode:print(result.stdout,result.stderr);result.check_returncode()
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/rtx20/verify.py Fix26/source/rtx20/verify.py
+--- Fix25/source/rtx20/verify.py	2026-09-28 20:10:36.000000000 +0000
++++ Fix26/source/rtx20/verify.py	2026-10-03 01:35:06.000000000 +0000
+@@ -17,7 +17,7 @@
+   if i==index:return b''.join(b[j*block:(j+1)*block] for j in ids)[:size]
+  raise ValueError(index)
+ runtime=json.loads((root/'source/rtx20/build-report.json').read_text())
+-assert runtime['version']=='2.8.5-rtx20-rtx30-dx12-preview2-fix25-test'
++assert runtime['version']=='2.8.5-rtx20-rtx30-dx12-preview2-fix26-test'
+ assert runtime['render_api']=='D3D11 + D3D12 SDR'
+ # New backend, private matched API5 headers and their preserved provenance must
+ # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
+@@ -48,6 +48,7 @@
+ assert (root/'FIX18_NOTES.md').is_file()
+ assert (root/'FIX19_NOTES.md').is_file()
+ assert (root/'FIX20_NOTES.md').is_file()
++assert (root/'FIX26_NOTES.md').is_file()
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+@@ -55,7 +56,7 @@
+ assert behavior['result']=='PASS' and behavior['shader_sha256']==shader['shader_sha256']
+ for name,digest in behavior['source_sha256'].items():assert sha(root/name)==digest,'Shader test source changed: '+name
+ assert len(behavior['results'])==2 and all(x['result']=='PASS' for x in behavior['results'])
+-assert {x['entry'] for x in shader['results']}=={'Fullscreen','Capture','Project','DominantMotion','Synthesize','Resolve','Blit','BlitSrgb','OverlayMask','OverlayGrow'}
++assert {x['entry'] for x in shader['results']}=={'Fullscreen','Capture','Project','DominantMotion','Synthesize','Resolve','Blit','BlitSrgb','OverlayMask','OverlayGrow','Coherence'}
+ assert all(x['result']=='PASS' for x in shader['results'])
+ expected_shader='#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(root/'source/rtx20/shaders.hlsl').read_text()+')SM20HLSL";\n'
+ assert (root/'source/rtx20/shader_source.hpp').read_text()==expected_shader
+@@ -80,12 +81,12 @@
+  symbols.append({'binary':binary,'sha256':sha(root/binary),'pdb':'Symbols/'+pdb,'pdb_sha256':sha(root/'Symbols'/pdb),'guid':str(uuid.UUID(bytes_le=guid)),'age':age})
+ for name in ['normal.asi','version.dll']:
+  pe=PE(root/'payload/native'/name);assert {'InitializeASI','SmoothMotionGetStatus'}<=pe.exports().keys()
+- assert b'2.8.5-rtx20-rtx30-dx12-preview2-fix25-test' in pe.data
++ assert b'2.8.5-rtx20-rtx30-dx12-preview2-fix26-test' in pe.data
+  assert b'NvPresent64.dll' not in pe.data and 'NvPresent64.dll'.encode('utf-16-le') not in pe.data
+  assert b'cuGraphicsD3D11RegisterResource' in pe.data and b'NvOFAPICreateInstanceCuda' in pe.data
+  assert b'NvOFAPICreateInstanceD3D11' in pe.data and b'nvof_api=D3D11 API5 ready' in pe.data
+  assert b'performance_cpu_wall_us' in pe.data
+- assert b'artifact_guard=occlusion_aware_v9' in pe.data
++ assert b'artifact_guard=occlusion_aware_v10' in pe.data
+  assert b'GPU budget:' in pe.data and b'pair_gpu_us' in pe.data and b'ExclusiveFullscreen' in pe.data.replace(b'\x00',b'')
+  assert b'10-bit SDR backbuffer (R10G10B10A2)' in pe.data
+  assert b'guard: generation paused' in pe.data and b'GPU-bound: waiting for the GPU' in pe.data and 'MinimumBaseRate'.encode('utf-16-le') in pe.data and b'native rate: %.1f FPS' in pe.data and b'guard_pauses' in pe.data
+diff -ruN '--exclude=*.exe' '--exclude=*.dll' '--exclude=*.asi' '--exclude=*.pdb' '--exclude=*.lib' '--exclude=*.json' '--exclude=SHA256SUMS.txt' '--exclude=__pycache__' '--exclude=*.png' Fix25/source/setup/payload_hashes.hpp Fix26/source/setup/payload_hashes.hpp
+--- Fix25/source/setup/payload_hashes.hpp	2026-09-28 22:05:26.000000000 +0000
++++ Fix26/source/setup/payload_hashes.hpp	2026-10-03 01:36:18.000000000 +0000
+@@ -1,8 +1,8 @@
+ // Generated from current payloads and pinned legacy ownership identities.
+ #pragma once
+ namespace payload_hashes {
+-inline constexpr const char native_proxy[] = "0f39d61fb37de34e8db4428f059e0aef91205af2b7f9489eb9a63ec781945f18";
+-inline constexpr const char motion[] = "392ffa45a634f0bfe3c431e079d5e52087a9afbd0d577cf95ff8271d1c72985b";
++inline constexpr const char native_proxy[] = "27f9861e59a21c03d86e534ffb256478208c636ca02c07f9c1b2df24cb1cfdb2";
++inline constexpr const char motion[] = "4ba7f3382ca6c4a6ece4cfbcadd3987018e367ed375386a96103b108ff898527";
+ inline constexpr const char loader[] = "031a3e5576d91dce1e438d36b9a3d462c7334ab4791990a8ff1e3ddc0e132daf";
+ inline constexpr const char ini[] = "7fbe28780c05b182220c61197ba7ea9506816fb3637897c3ae4a0ecd7fd7d650";
+ inline constexpr const char standalone[] = "feb05f255d09bc207a7eeacd55cb87b0bbfeedc5337b97aaa37245ed36a98bc7";
