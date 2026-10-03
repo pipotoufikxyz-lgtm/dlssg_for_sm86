@@ -1,6 +1,23 @@
 # SmoothMotion RTX20/RTX30 builds (Turing and Ampere)
 
-## 2.8.5 Fix 26 — fragments around characters, swords, HUD, roofs (current)
+## 2.8.5 Fix 27 — DX12 games adopted at Present, better flow (current)
+
+`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix27-Test.zip`: everything in
+Fix26, plus:
+
+- **World of Warcraft (DX12) works from the start** (log 63). The game creates
+  its swapchain before the hooks can see it; the swapchain was found at its
+  first Present but without its command queue, so generation only began after
+  switching DX12 → DX11 → DX12. The queue is now taken from the game's own
+  command submissions.
+- **Better optical flow.** Temporal hints (each pair's search starts from the
+  previous pair's vectors, as NVIDIA recommends for video), and the SLOW
+  preset up to 55 real FPS when its cost fits the GPU budget (was 40).
+- **Other reports** (Tekken 8 crash, Ninja Gaiden 4, Far Cry New Dawn, RDR2
+  Vulkan): what the logs show and what to send next is in `FIX27_NOTES.md`.
+- Not run on Windows or a GPU here.
+
+## 2.8.5 Fix 26 — fragments around characters, swords, HUD, roofs (previous)
 
 `SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix26-Test.zip`: everything in
 Fix25, plus fixes for the Witcher 3 report on Fix24 (RTX 2080, about 30 FPS):
