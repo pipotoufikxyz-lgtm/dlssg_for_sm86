@@ -1,3 +1,92 @@
+--- a/source/build_release.py
++++ b/source/build_release.py
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build and verify the complete RTX20 DX12 Preview 2 Fix 20 RTX 20/30 Test release."""
++"""Build and verify the complete RTX20/RTX30 Fix28 qua2 lock release."""
+ import argparse,pathlib,subprocess,sys,shutil
+ import build_toolchain
+ r=pathlib.Path(__file__).resolve().parents[1]
+@@ -18,5 +18,7 @@
+ subprocess.run([*build_toolchain.command(a,r/'Test/RTX20_TransferTest.exe'),'-std=c++20','-O2','-static','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX',
+  '-I'+str(r/'source/native/include'),str(r/'source/rtx20/transfer_smoke_test.cpp'),str(r/'source/rtx20/dx12_transfer.cpp'),
+  '-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-o',str(r/'Test/RTX20_TransferTest.exe')],check=True)
+-run('source/stage_manual.py');run('source/rtx20/test_shader.py')
++# fix28-qua2-lock: qua2's shader is used unchanged; Fix28's CPU shader
++# regression (test_shader.py) targets Fix28's shader and is not run.
++run('source/stage_manual.py')
+ run('source/rtx20/test_vulkan.py',*(['--wine-loader',pathlib.Path(a.vulkan_wine_loader).absolute(),'--cxx',pathlib.Path(a.cxx).absolute()] if a.vulkan_wine_loader and a.cxx else []));run('source/rtx20/test.py',*(['--ubsan-only'] if a.ubsan_only else []));run('source/rtx20/verify.py')
+--- a/source/package_release.py
++++ b/source/package_release.py
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ import argparse,pathlib,subprocess,hashlib,sys,zipfile
+ r=pathlib.Path(__file__).resolve().parents[1]
+-archive_root='SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-Test'
++archive_root='SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock'
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ subprocess.run([sys.executable,str(r/'source/rtx20/verify.py')],check=True)
+ files=[f for f in sorted(r.rglob('*')) if f.is_file() and '__pycache__' not in f.parts and f.name!='SHA256SUMS.txt']
+--- a/source/manager/manager.cpp
++++ b/source/manager/manager.cpp
+@@ -444,7 +444,7 @@
+   icon(i,43,y+13,app.page==i?accent():muted());labelUi(nav[i],{72,y+12,181,y+38},app.body,app.page==i?ink():muted());app.hits.push_back({r,100+i,true});}
+  app.glass.glass({28,app.height-130,193,app.height-31},23,waterglass::Material::Control,app.brush,false);
+  fill({44,app.height-105,51,app.height-98},app.busy?0xe5a93f:0x26a585,4);labelUi(app.busy?L"Working…":L"Ready",{59,app.height-111,180,app.height-83},app.body,ink());
+- label(L"Fix 27 \u00b7 RTX 20 / 30",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.5 preview 2",{45,app.height-54,185,app.height-34},app.small,muted());
++ label(L"Fix28 qua2 lock",{45,app.height-74,185,app.height-52},app.small,muted());label(L"2.8.5 \u00b7 RTX 20/30",{45,app.height-54,185,app.height-34},app.small,muted());
+  float left=233,right=app.width-28;labelUi(L"SMOOTH MOTION  /  INSTALL & UNINSTALL",{left,24,right-200,51},app.small,muted());button({right-178,16,right,57},tr(installer_theme::themes[app.theme].name)+L"  ▾",31);
+  if(app.setup.open)setupScreen(left,right);else if(app.selected>=0&&app.selected<static_cast<int>(app.games.size()))detail(left,right);
+  else if(app.page==0||app.page==1){
+@@ -473,7 +473,7 @@
+    labelUi(L"Some technical diagnostics remain in English. Game names and file paths are unchanged.",{x,551,right-28,590},app.small,muted());
+    button({x,620,x+300,666},textFormat(L"Restore hidden games ({0})",{std::to_wstring(app.hidden.size())}),35,false,!app.hidden.empty());
+   }
+-  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.5-rtx20-rtx30-dx12-preview2-fix28-test",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11, DirectX 12 and Vulkan SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
++  if(app.page==5){labelUi(L"Smooth Motion Manager 2.8.5-rtx20-rtx30-fix28-qua2-lock",{x,195,right-28,235},app.h1,ink());labelUi(L"Choose standalone version.dll or new.asi with an ASI loader. Each installation creates uninstall.bat beside the game executable.\n\nRTX 20-series optical flow with custom frame synthesis. DirectX 11, DirectX 12 and Vulkan SDR preview; not NVIDIA's proprietary Smooth Motion model.\n\nSix themes and five accent colours. Liquid glass interface: frosted, refracting panels over a theme aurora.\n\nUltimate ASI Loader by ThirteenAG and contributors. Licence and release provenance are included.\n\nPer-game startup, displayed frame output and performance require hardware testing.",{x,258,right-35,563},app.body,muted());}
+ 
+  }
+  labelUi(app.current,{233,app.height-35,app.width-28,app.height-8},app.small,muted());HRESULT hr=app.target->EndDraw();if(FAILED(hr)){
+--- a/source/motion/identity.hpp
++++ b/source/motion/identity.hpp
+@@ -146,8 +146,18 @@
+ // Exact released Fix19 bytes retained for managed upgrades.
+ inline constexpr const char* releaseRTX20Preview2Fix19Native="d01ce8644ceacd5d0c2fbbc4c97f7739e5c2af69e2c8e37fbdcefbf3d9787bfe";
+ inline constexpr const char* releaseRTX20Preview2Fix19NativeProxy="f0ca70280b6e9e9b448e81c040e27fad266af399e03bf5e19cc28b0f489cf07e";
+-inline constexpr std::array<const char*,48> previousNativeProxies{{releaseRTX20Preview2Fix27NativeProxy,releaseRTX20Preview2Fix26NativeProxy,releaseRTX20Preview2Fix25NativeProxy,releaseRTX20Preview2Fix24v285NativeProxy,releaseRTX20Preview2Fix24NativeProxy,releaseRTX20Preview2Fix23NativeProxy,releaseRTX20Preview2Fix22NativeProxy,releaseRTX20Preview2Fix21NativeProxy,releaseRTX20Preview2Fix20NativeProxy,releaseRTX20Preview2Fix19NativeProxy,releaseRTX20Preview2Fix18NativeProxy,releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
+-inline constexpr std::array<const char*,58> previousPlugins{{releaseRTX20Preview2Fix27Native,releaseRTX20Preview2Fix26Native,releaseRTX20Preview2Fix25Native,releaseRTX20Preview2Fix24v285Native,releaseRTX20Preview2Fix24Native,releaseRTX20Preview2Fix23Native,releaseRTX20Preview2Fix22Native,releaseRTX20Preview2Fix21Native,releaseRTX20Preview2Fix20Native,releaseRTX20Preview2Fix19Native,releaseRTX20Preview2Fix18Native,releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
++// fix28-qua2-lock: earlier builds installed by hand or by the Fix28 Manager
++// (Fix28 Test package, qua1/qua2 binary patches, first lock build).
++inline constexpr const char* releaseRTX20Preview2Fix28Native="5fba75b427910cf743931873a0e67d69a190c25d29559c43bf6284938a2ca7e5";
++inline constexpr const char* releaseRTX20Preview2Fix28NativeProxy="90f60d7d3a64d8e66b637c8c5e184b8bcd1604ed288a8b4fbe8d890786a2a72f";
++inline constexpr const char* releaseFix28Qua1Native="91e429372109a779d015c28ba04cc52d1755f530bc93447954bcf28333f2a789";
++inline constexpr const char* releaseFix28Qua1NativeProxy="206d1dd82572bbb5a2d49e76e85fe818d2b3c4a5a32bd6663b934ca08c4c6d88";
++inline constexpr const char* releaseFix28Qua2Native="d2ddf588411b5d5f4ccc689aef40e83094d2f98ac2e560627ac5dd0b31266d6e";
++inline constexpr const char* releaseFix28Qua2NativeProxy="ec7d81ca00463a168b8385016f0388f230d2477c2d49ac307ef60d58b7225e0f";
++inline constexpr const char* releaseFix28Qua2Lock1Native="c4d34ba372916f81cc7221efd64afd09ff4a5df9ba9e845c4bf207a93960c654";
++inline constexpr const char* releaseFix28Qua2Lock1NativeProxy="48a8f771818235d05ee27b2053653996146f2abc268f8e557e72e49d1df53f06";
++inline constexpr std::array<const char*,52> previousNativeProxies{{releaseFix28Qua2Lock1NativeProxy,releaseFix28Qua2NativeProxy,releaseFix28Qua1NativeProxy,releaseRTX20Preview2Fix28NativeProxy,releaseRTX20Preview2Fix27NativeProxy,releaseRTX20Preview2Fix26NativeProxy,releaseRTX20Preview2Fix25NativeProxy,releaseRTX20Preview2Fix24v285NativeProxy,releaseRTX20Preview2Fix24NativeProxy,releaseRTX20Preview2Fix23NativeProxy,releaseRTX20Preview2Fix22NativeProxy,releaseRTX20Preview2Fix21NativeProxy,releaseRTX20Preview2Fix20NativeProxy,releaseRTX20Preview2Fix19NativeProxy,releaseRTX20Preview2Fix18NativeProxy,releaseRTX20Preview2Fix17NativeProxy,releaseRTX20Preview2Fix16NativeProxy,releaseRTX20Preview2Fix15NativeProxy,releaseRTX20Preview2Fix14NativeProxy,releaseRTX20Preview2Fix13NativeProxy,releaseRTX20Preview2Fix12NativeProxy,releaseRTX20Preview2Fix11NativeProxy,releaseRTX20Preview2Fix10NativeProxy,releaseRTX20Preview2Fix9NativeProxy,releaseRTX20Preview2Fix8NativeProxy,releaseRTX20Preview2Fix7NativeProxy,releaseRTX20Preview2Fix6NativeProxy,releaseRTX20Preview2Fix5NativeProxy,releaseRTX20Preview2Fix4NativeProxy,releaseRTX20Preview2Fix3NativeProxy,releaseRTX20Preview2Fix2NativeProxy,releaseRTX20Preview2Fix1NativeProxy,releaseRTX20Preview2NativeProxy,releaseRTX20Preview1NativeProxy,release282GP9Fixes1NativeProxy,release282GP9NativeProxy,release282GP7NativeProxy,release282GP6NativeProxy,release282GP5NativeProxy,release282GP4NativeProxy,release282GP3NativeProxy,release282GP1NativeProxy,release282R3NativeProxy,release282R4NativeProxy,release282NativeProxy,release283NativeProxy,release282R1NativeProxy,release282R2NativeProxy,release30NativeProxy,release27NativeProxy,release28NativeProxy,release281NativeProxy}};
++inline constexpr std::array<const char*,62> previousPlugins{{releaseFix28Qua2Lock1Native,releaseFix28Qua2Native,releaseFix28Qua1Native,releaseRTX20Preview2Fix28Native,releaseRTX20Preview2Fix27Native,releaseRTX20Preview2Fix26Native,releaseRTX20Preview2Fix25Native,releaseRTX20Preview2Fix24v285Native,releaseRTX20Preview2Fix24Native,releaseRTX20Preview2Fix23Native,releaseRTX20Preview2Fix22Native,releaseRTX20Preview2Fix21Native,releaseRTX20Preview2Fix20Native,releaseRTX20Preview2Fix19Native,releaseRTX20Preview2Fix18Native,releaseRTX20Preview2Fix17Native,releaseRTX20Preview2Fix16Native,releaseRTX20Preview2Fix15Native,releaseRTX20Preview2Fix14Native,releaseRTX20Preview2Fix13Native,releaseRTX20Preview2Fix12Native,releaseRTX20Preview2Fix11Native,releaseRTX20Preview2Fix10Native,releaseRTX20Preview2Fix9Native,releaseRTX20Preview2Fix8Native,releaseRTX20Preview2Fix7Native,releaseRTX20Preview2Fix6Native,releaseRTX20Preview2Fix5Native,releaseRTX20Preview2Fix4Native,releaseRTX20Preview2Fix3Native,releaseRTX20Preview2Fix2Native,releaseRTX20Preview2Fix1Native,releaseRTX20Preview2Native,releaseRTX20Preview1Native,release282GP9Fixes1Native,release282GP9Native,release282GP7Native,release282GP6Native,release282GP5Native,release282GP4Native,release282GP3Native,release282GP1Native,release282R3Native,release282R4Native,release282Native,release283Native,release282R1Native,release282R2Native,release30Native,previousRenderer,release18Renderer,release181Renderer,release20Renderer,release21Native,release22Native,release23Native,release24Native,release25Native,release26Native,release27Native,release28Native,release281Native}};
+ inline bool ownedPlugin(const std::string& hash,const std::string& current){
+  if(hash.empty())return false;if(hash==current)return true;
+  for(const auto* previous:previousPlugins)if(hash==previous)return true;return false;
+--- a/source/setup/file_plan_test.cpp
++++ b/source/setup/file_plan_test.cpp
+@@ -186,7 +186,13 @@
+                  std::pair{motion::release283Native,motion::release283NativeProxy},
+                  std::pair{motion::release282R1Native,motion::release282R1NativeProxy},
+                  std::pair{motion::release282R2Native,motion::release282R2NativeProxy},
+-                 std::pair{motion::release30Native,motion::release30NativeProxy}}){
++                 std::pair{motion::release30Native,motion::release30NativeProxy},
++                 // fix28-qua2-lock: the Fix28 Test package, qua1, qua2 and
++                 // the first lock build are upgraded in place.
++                 std::pair{motion::releaseRTX20Preview2Fix28Native,motion::releaseRTX20Preview2Fix28NativeProxy},
++                 std::pair{motion::releaseFix28Qua1Native,motion::releaseFix28Qua1NativeProxy},
++                 std::pair{motion::releaseFix28Qua2Native,motion::releaseFix28Qua2NativeProxy},
++                 std::pair{motion::releaseFix28Qua2Lock1Native,motion::releaseFix28Qua2Lock1NativeProxy}}){
+   auto oldAsi=release21;put(oldAsi,"new.asi",prior.first);
+   auto oldProxy=clean;put(oldProxy,"version.dll",prior.second);
+   for(auto original:{oldAsi,oldProxy}){
 --- a/source/rtx20/build.py
 +++ b/source/rtx20/build.py
 @@ -11,14 +11,14 @@
@@ -808,7 +897,20 @@
   report['host']={'result':'PASS','driver':'Mesa lavapipe','validation_layer':True,'cases':results}
 --- a/source/rtx20/transfer_smoke_test.cpp
 +++ b/source/rtx20/transfer_smoke_test.cpp
-@@ -56,6 +56,9 @@
+@@ -1,7 +1,11 @@
+ // Standalone pixel regression for the production transfer layer. No ASI, CUDA
+-// or NVOF is loaded. Forced staging makes the fallback independently testable.
++// or NVOF is loaded. Staging, shared sync and shared async transfers are tested.
++#ifndef WIN32_LEAN_AND_MEAN
+ #define WIN32_LEAN_AND_MEAN
++#endif
++#ifndef NOMINMAX
+ #define NOMINMAX
++#endif
+ #include "dx12_transfer.hpp"
+ #include "nvs30/gpu_wait.hpp"
+ #include <d3d12sdklayers.h>
+@@ -56,6 +60,9 @@
   HANDLE event{};
   bool inFlight{};
   unsigned cases{},checks{};
@@ -818,7 +920,7 @@
   ~Harness(){delete transfer;if(event)CloseHandle(event);}
   void initialize(HWND window){
    ComPtr<ID3D12Debug> layer;
-@@ -126,13 +129,16 @@
+@@ -126,13 +133,16 @@
     check(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&b,kind==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&target)),"Create test buffer");
    };
    buffer(D3D12_HEAP_TYPE_UPLOAD,upload);buffer(D3D12_HEAP_TYPE_READBACK,readback);
@@ -837,7 +939,7 @@
   }
   // An independent upload/readback pair gives the test an oracle without using
   // DX12Transfer to construct its own expected result.
-@@ -202,27 +208,65 @@
+@@ -202,27 +212,65 @@
    check(transfer->write_original(swap.Get()),"Production write_original after Present");verify_back(original,"Saved original -> next DX12 buffer");
    verify_snapshot(original);collect_debug();++cases;
   }
@@ -920,7 +1022,24 @@
  assert runtime['render_api']=='D3D11 + D3D12 + Vulkan SDR'
  # New backend, private matched API5 headers and their preserved provenance must
  # accompany the binaries. CUDA2 headers remain a distinct initialization fallback.
-@@ -87,12 +87,12 @@
+@@ -54,10 +54,12 @@
+ shader=json.loads((root/'validation/shader-and-abi.json').read_text())
+ assert sha(root/'source/rtx20/shaders.hlsl')==shader['shader_sha256']
+ assert sha(root/'source/rtx20/include/cuda.h')==shader['cuda_header_sha256']
+-behavior=json.loads((root/'validation/shader-regression.json').read_text())
+-assert behavior['result']=='PASS' and behavior['shader_sha256']==shader['shader_sha256']
+-for name,digest in behavior['source_sha256'].items():assert sha(root/name)==digest,'Shader test source changed: '+name
+-assert len(behavior['results'])==2 and all(x['result']=='PASS' for x in behavior['results'])
++# fix28-qua2-lock: the shader is qua2's, unchanged: the exact text embedded
++# in the qua2 binaries (smoothmotion-quality/shader/shaders_embedded.hlsl).
++# Fix28's CPU shader regression (test_shader.py) targets Fix28's own shader
++# and is not part of this package.
++assert sha(root/'source/rtx20/shaders.hlsl')=='1cf23cfa44f7e2bd279cea0d30ef6c5256f7c360c6b3ae7935d456c9082bdf4f','shader is not qua2\'s'
++assert not (root/'validation/shader-regression.json').exists(),'stale Fix28 shader regression record'
+ assert {x['entry'] for x in shader['results']}=={'Fullscreen','Capture','Project','DominantMotion','Synthesize','Resolve','Blit','BlitSrgb','OverlayMask','OverlayGrow','Coherence','RefineForward','RefineBackward'}
+ assert all(x['result']=='PASS' for x in shader['results'])
+ expected_shader='#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(root/'source/rtx20/shaders.hlsl').read_text()+')SM20HLSL";\n'
+@@ -87,12 +89,12 @@
   assert 'vkNegotiateLoaderLayerInterfaceVersion' in pe.exports()
   assert b'vulkan-1.dll' not in pe.data.lower() and b'VK_LAYER_SMOOTHMOTION_frame_generation' in pe.data
   assert b'[vulkan] Bridge ready' in pe.data and b'vulkan_generated_presents' in pe.data and 'FlowRefine'.encode('utf-16-le') in pe.data

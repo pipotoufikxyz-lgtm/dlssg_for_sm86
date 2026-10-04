@@ -37,10 +37,14 @@ What it adds:
   checked in any DXGI game.
 - Vulkan: locked pacing (FIFO), a frame-order fix, and an acquire fallback
   that recovers instead of staying nonblocking.
+- **The full package with `SmoothMotion_Manager.exe`:**
+  [`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip`](SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip).
+  The Manager installs this build and upgrades Fix28, qua1, qua2 or the
+  first lock build in place ([Install](#install)).
 
 Runtime version: `2.8.5-rtx20-rtx30-dx12-preview2-fix28-qua2-lock`. Built
-from the Fix28 source in this repository's history
-(`rtx20/SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-Test.zip`) with
+from the Fix28 source in this repository's history (commit `e2700a1`,
+`rtx20/SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-Test.zip`) with
 LLVM-MinGW 20250924 (clang 21.1.2), the same compiler as Fix28.
 
 ## What "always 2x" means here
@@ -152,32 +156,67 @@ ASI loader), and the game must not run as administrator.
 ## Install
 
 > [!IMPORTANT]
-> Untested on Windows/NVIDIA (see the warning at the top). Back up the
-> game's current `new.asi` or `version.dll` before replacing it.
+> Untested on Windows/NVIDIA (see the warning at the top).
+
+### With the Manager
+
+1. Download
+   [`SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip`](SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip)
+   (26.4 MB) and extract the whole ZIP.
+2. Run `SmoothMotion_Manager.exe`, pick the game and install, as with Fix28.
+
+The ZIP is the Fix28 package rebuilt from this source:
+`SmoothMotion_Manager.exe`, `Install.exe` and `Collect_Diagnostics.exe`
+carry this build. Besides Fix28's earlier releases, they recognise these as
+their own files and replace them in place (and the uninstaller removes
+them):
+
+- the Fix28 Test package;
+- the qua1 and qua2 binaries (`smoothmotion-quality/bin/`, commits
+  `4275fe8` and `8eb0089`);
+- the first lock build (commit `338c4aa`).
+
+As in Fix28, a `new.asi` or `version.dll` they do not recognise is not
+overwritten. The ZIP also holds the manual kits (`Manual\`), the test kit
+(`Test\Run_Tests.cmd`), `nvsmooth30.example.ini`, symbols and the full source.
+
+| File | SHA-256 |
+|---|---|
+| `SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip` | `ebe69231ae347b5c112afc517a496f61f76863fb08cee50fb8ed151a12d4098b` |
+| `SmoothMotion_Manager.exe` | `fe341e3d96bea30d6b7fed51af2acd421d5971c5e7c417a59e6a7fe7c76d2399` |
+| `Install.exe` | `439a9edcd88b87a68e6c8defb260be39676dc034905757dc4fb3862efabedc8b` |
+
+### By hand
+
+Back up the game's current `new.asi` or `version.dll` first. Hand copies
+get no uninstall receipt.
 
 - **ASI loader route:** replace the game's `new.asi` with `bin/new.asi`.
 - **Standalone route:** replace the game's `version.dll` with
   `bin/version.dll`.
+
+| File | SHA-256 |
+|---|---|
+| `bin/new.asi` | `60cd80f9106126277501d9214cab1aa595fb27c967312ca64a6ecd220ab68f2b` |
+| `bin/version.dll` | `c3d013478c4452c8ce4042110dffc877d95bbb8eed08cc3b993703bfa43553ca` |
+
+These are the same files the Manager installs (`payload/native/normal.asi`
+and `payload/native/version.dll` in the ZIP).
+
+### Settings
+
 - Optional: copy `nvsmooth30.ini` beside the game executable. Without it,
   `Pacing=locked`, `LockedBaseRate=half` and `Dx12Transfer=async` are the
   defaults.
 - The first start compiles the shaders (10–30 s pass-through); later starts
   use the cache.
 
-| File | SHA-256 |
-|---|---|
-| `bin/new.asi` | `3a5405faf6356f593da48f04abacbeba595e29f14ec49a622840a1fd0d3facf5` |
-| `bin/version.dll` | `10e8ba8b10fcdd51cfb50e19a21468203d8bd870dc113f8f7681567ae133e78c` |
-
-The Fix28 Manager and `Install.exe` check Fix28's hashes and will not
-install these files; copy them by hand.
-
 ## Test kit
 
 `test/` holds Fix28's hardware tests, rebuilt from this source, and
-`Run_Tests.cmd`. Download the whole `smoothmotion-locked` folder, then
-double-click `test\Run_Tests.cmd`. It copies `bin\new.asi` beside the tests,
-sets `Pacing=locked`, and runs:
+`Run_Tests.cmd` (the ZIP has the same kit in `Test\`). Download the whole
+`smoothmotion-locked` folder, then double-click `test\Run_Tests.cmd`. It
+copies `bin\new.asi` beside the tests, sets `Pacing=locked`, and runs:
 
 1. `ShaderCheck.exe`: compiles the shaders with this PC's D3DCompiler.
 2. `RTX20_TransferTest.exe`: DX12 copy pixel test in the three transfer
@@ -235,10 +274,13 @@ Runtime status fields (in `performance_gpu_us`):
 
 ## What was tested
 
-- **Build:** `normal.asi`, `version.dll` and the five test programs
-  cross-compiled without warnings.
+- **Build:** `normal.asi`, `version.dll`, `Install.exe`,
+  `SmoothMotion_Manager.exe`, `Collect_Diagnostics.exe` and the five test
+  programs cross-compiled without warnings (`source/build_release.py`).
 - **Host tests (Fix28 suite, 21 suites × optimized and ASan/UBSan):**
-  42/42 PASS, including policy tests for locked pacing (never paused,
+  42/42 PASS. They include the installer's file plans: the four earlier
+  builds above are upgraded in place on both routes, and a modified copy is
+  never overwritten. Also policy tests for locked pacing (never paused,
   VSync pairs, held frames, quarter intervals, late-frame rule) and for the
   on-screen measurement (lagging and aliased statistics give no false
   repeats; a held refresh counts once; quarter; counter restarts).
@@ -249,33 +291,48 @@ Runtime status fields (in `performance_gpu_us`):
   validation layer reports the test app's own swapchain-semaphore reuse with
   no layer loaded; the test requires the layer to add no error to that
   baseline.
+- **Package check (`verify.py`):** PASS: identities, source hashes, 10
+  PE/PDB pairs, manual kits; the payload `Install.exe` was built with and
+  the helpers the Manager was built with are the files in the package. Its
+  Fix28 shader-regression step is replaced by a check that the shader is
+  qua2's exact text: Fix28's regression targets Fix28's shader, and qua2's
+  does not meet all of its thresholds.
 - **Not run:** anything on Windows or on an NVIDIA GPU (optical flow,
-  synthesis, D3D11/D3D12 interop, the async DX12 path, the test kit); a real
-  game; a real display. The host tests check the pacing logic and the order
-  and intervals of Present calls, not what the display shows. `verify.py`
-  is not run because it includes Fix28's own shader regression, which
-  qua2's shader does not pass.
+  synthesis, D3D11/D3D12 interop, the async DX12 path, the test kit); the
+  Manager and `Install.exe` themselves; a real game; a real display. The
+  host tests check the pacing logic and the order and intervals of Present
+  calls, not what the display shows.
 
 ## Rebuild
 
-From the Fix28 package root (`rtx20/SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-Test.zip`):
+The ZIP contains the full source. From its root, with LLVM-MinGW 20250924:
+
+```sh
+python3 source/build_release.py --cxx /path/to/llvm-mingw-20250924-ucrt/bin/x86_64-w64-mingw32-clang++
+python3 source/package_release.py --output ../SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip
+```
+
+`build_release.py` needs `glslangValidator`, and `mesa-vulkan-drivers` +
+`vulkan-validationlayers` for the Vulkan test. Or from the Fix28 package
+root:
 
 ```sh
 patch -p1 < source/fix28-to-lock.patch        # this folder's patch
 cp <repo>/smoothmotion-quality/shader/shaders_embedded.hlsl source/rtx20/shaders.hlsl
-python3 source/rtx20/build.py --cxx /path/to/llvm-mingw-20250924-ucrt/bin/x86_64-w64-mingw32-clang++
-python3 source/rtx20/test.py
-python3 source/rtx20/test_vulkan.py            # needs mesa-vulkan-drivers + vulkan-validationlayers
+rm validation/shader-regression.json          # Fix28's shader record
+python3 source/build_release.py --cxx /path/to/llvm-mingw-20250924-ucrt/bin/x86_64-w64-mingw32-clang++
 ```
 
-The binaries are in `payload/native/` (`normal.asi` is `new.asi`). The test
-programs build as in Fix28's `source/build_release.py`.
+The patch covers `source/` only; the ZIP's documents (`LOCK_NOTES.md`,
+README, changelog) are not in it.
 
 ## Files
 
+- `SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip`: the full package with the Manager;
+  `SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-qua2-lock.zip.sha256`: its checksum.
 - `bin/new.asi`, `bin/version.dll`: the build.
 - `nvsmooth30.ini`: settings with comments.
 - `test/`: test programs and `Run_Tests.cmd`.
 - `source/fix28-to-lock.patch`: all source changes against Fix28 (the
-  shader is copied, not patched).
+  shader is copied, not patched; generated build reports excluded).
 - `source/build-report.json`: compiler, artifact hashes and source hashes.

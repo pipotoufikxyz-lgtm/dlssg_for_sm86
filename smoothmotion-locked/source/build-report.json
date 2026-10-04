@@ -7,11 +7,11 @@
   "Windows_executed": false,
   "artifacts": {
     "normal.asi": {
-      "sha256": "3a5405faf6356f593da48f04abacbeba595e29f14ec49a622840a1fd0d3facf5",
+      "sha256": "60cd80f9106126277501d9214cab1aa595fb27c967312ca64a6ecd220ab68f2b",
       "bytes": 1570816
     },
     "version.dll": {
-      "sha256": "10e8ba8b10fcdd51cfb50e19a21468203d8bd870dc113f8f7681567ae133e78c",
+      "sha256": "c3d013478c4452c8ce4042110dffc877d95bbb8eed08cc3b993703bfa43553ca",
       "bytes": 1576960
     }
   },
@@ -56,9 +56,9 @@
     "source/rtx20/transfer.hpp": "9088791fe47a9f6e75c65e54961540616402c9be69084fd767775bbd5368de59",
     "source/rtx20/transfer_sequence.hpp": "fc7403d549bb277d2696feec3b3a09290fb4a63d027b518200c10e70b18cf0cb",
     "source/rtx20/transfer_sequence_test.cpp": "70324b9dd3f8a110c4f80d58421d4116edae7e99a77705c81c33969853ee24c7",
-    "source/rtx20/transfer_smoke_test.cpp": "664e8d91ee05ae5e59d98b2907b5f5d5c06b4be94e254ca1456e8f8c5ae67e63",
+    "source/rtx20/transfer_smoke_test.cpp": "b15df86488c672d1055aaec295020a5a8d0772c6693760df27f4bc3ba3d4c0c3",
     "source/rtx20/validate_shaders.py": "7ce971f71aed14753e24ff3270412b1de9aaad24c814f0da4dab658eb47cd33a",
-    "source/rtx20/verify.py": "571c415281def4716f61e11f0ec7f500dd480dcce9fcd15d2162c3956c06ef8d",
+    "source/rtx20/verify.py": "ec47f038dfc0a697bed07c670cd780606410e830383989b2ca4c2fca6ab8f45d",
     "source/rtx20/vulkan_layer.cpp": "53714f5f957c34c457b81cc95b248bf4ca7f16ac4090c9ef07a8774b08a71219",
     "source/rtx20/vulkan_layer_core.hpp": "5ffd5de60bc38261ff60a5252f1f28feb33e41499d48129d014ee7b99387908b",
     "source/rtx20/vulkan_layer_entry.hpp": "e8adfe1fe09ccfbb4c7e52c586c01f16d5afbf9d0dac8e8fdf3ab43e8a644221",

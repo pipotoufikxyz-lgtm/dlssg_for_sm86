@@ -5,12 +5,13 @@ title SmoothMotion fix28-qua2-lock test kit
 echo SmoothMotion fix28-qua2-lock: hardware test kit (about 2 minutes)
 echo Keep the test windows in the foreground and do not move them while they run.
 echo.
-if not exist "..\bin\new.asi" (
-  echo Missing ..\bin\new.asi. Download the whole smoothmotion-locked folder, not only test\.
+rem Repository folder: take ..\bin\new.asi. Release package: Test\new.asi is already here.
+if exist "..\bin\new.asi" copy /y "..\bin\new.asi" "new.asi" >nul
+if not exist "new.asi" (
+  echo Missing new.asi. Download the whole smoothmotion-locked folder, or extract the whole release ZIP.
   pause
   exit /b 1
 )
-copy /y "..\bin\new.asi" "new.asi" >nul
 if exist results rmdir /s /q results
 mkdir results
 if exist nvsmooth30.log del /q nvsmooth30.log
