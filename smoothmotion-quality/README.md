@@ -1,5 +1,8 @@
 # SmoothMotion 2.8.5 Fix28: quality update 2 (`fix28-qua2`)
 
+> **Pacing:** for a build of this shader that always presents 2x with even
+> frame pacing (DXGI and Vulkan), see [`../smoothmotion-locked`](../smoothmotion-locked/README.md).
+
 This is a quality update to the frame synthesis of **SmoothMotion 2.8.5
 RTX20/RTX30 DX12 Preview2 Fix28-Test**. Optical flow, pacing, the Vulkan
 layer and every other part of Fix28 are unchanged. Only the synthesis shader
