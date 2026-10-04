@@ -1,3 +1,519 @@
+--- a/source/rtx20/build.py
++++ b/source/rtx20/build.py
+@@ -11,14 +11,14 @@
+ (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
+ files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','async_flow.cpp','nvpresent_stub.cpp','vulkan_layer.cpp']]
+ files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
+-base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.5-rtx20-rtx30-dx12-preview2-fix28-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow'),'-I'+str(root/'third_party/vulkan-headers/include')]
++base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.5-rtx20-rtx30-dx12-preview2-fix28-qua2-lock"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow'),'-I'+str(root/'third_party/vulkan-headers/include')]
+ libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
+ artifacts={}
+ for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
+  dest=out/name
+  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
+  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
+-report={'version':'2.8.5-rtx20-rtx30-dx12-preview2-fix28-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 + Vulkan SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow',root/'third_party/vulkan-headers'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
++report={'version':'2.8.5-rtx20-rtx30-dx12-preview2-fix28-qua2-lock','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 + Vulkan SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow',root/'third_party/vulkan-headers'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
+ report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
+ (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+--- a/source/rtx20/dx12_smoke_test.cpp
++++ b/source/rtx20/dx12_smoke_test.cpp
+@@ -145,6 +145,6 @@
+  FILE* out=nullptr;_wfopen_s(&out,(dir+L"rtx20-dx12-test-report.txt").c_str(),L"wb");
+  if(out){std::fprintf(out,"RTX20 DX12 test\nBackend execution: %s\nValidation: %s\nValidation phase: %u (0 = whole run)\nApplication frames: %u\nResize phases reached: %u/2\n24-second run completed: %s\nRenderer result: 0x%08lx (%s)\nTearing capability: %s\nAccepted application Presents: tearing=%u vsync=%u\nD3D12 debug validation: %s\nD3D12 debug errors: %llu\nD3D12 debug messages discarded: %llu\nPhases: tearing / VSync / tearing (VSync fallback if tearing unavailable)\n\nBaseline:\n%s\n\nBefore ResizeBuffers:\n%s\n\nBefore ResizeBuffers1 / queue change:\n%s\n\nFinal status:\n%s\n\nPASS requires capture, writes, optical flow and generated Presents in all three phases with zero recorded backend/transfer/Present errors. Tearing eligibility must advance when supported. Keep F11 enabled for this automated run; disabling interpolation can make the result inconclusive.\nAPI/backend PASS does not confirm displayed interpolation, image quality or pacing. Perform a separate F11 on/off visual comparison.\n",sm20::smoke::label(validation.result),validation.reason,validation.phase,frames,phase,completed?"yes":"no",(unsigned long)outcome,operation,renderer->swapFlags?"supported":"unavailable; tearing path untested",renderer->tearingFrames,renderer->vsyncFrames,renderer->infoQueue?"available":"unavailable; debug layer was not checked",(unsigned long long)renderer->debugErrors,(unsigned long long)renderer->debugDiscarded,snapshots[0],snapshots[1],snapshots[2],snapshots[3]);std::fclose(out);}
+  if(!renderer->inFlight)delete renderer;
+- MessageBoxW(window,backendPassed?L"PASS: DX12 capture, optical flow and generated Presents executed in every phase with no recorded errors. Displayed interpolation, image quality and pacing still require visual checking. See rtx20-dx12-test-report.txt.":validation.result==sm20::smoke::Result::inconclusive?L"INCONCLUSIVE: backend execution was not demonstrated in every phase. Leave F11 enabled, finish the full run, and inspect rtx20-dx12-test-report.txt and nvsmooth30.log.":L"FAIL: the renderer, backend counters or D3D12 debug layer reported a problem. See rtx20-dx12-test-report.txt and nvsmooth30.log.",L"RTX20 DX12 hardware test",MB_OK);
++ if(!GetEnvironmentVariableW(L"SM86_TEST_NO_PROMPT",nullptr,0))MessageBoxW(window,backendPassed?L"PASS: DX12 capture, optical flow and generated Presents executed in every phase with no recorded errors. Displayed interpolation, image quality and pacing still require visual checking. See rtx20-dx12-test-report.txt.":validation.result==sm20::smoke::Result::inconclusive?L"INCONCLUSIVE: backend execution was not demonstrated in every phase. Leave F11 enabled, finish the full run, and inspect rtx20-dx12-test-report.txt and nvsmooth30.log.":L"FAIL: the renderer, backend counters or D3D12 debug layer reported a problem. See rtx20-dx12-test-report.txt and nvsmooth30.log.",L"RTX20 DX12 hardware test",MB_OK);
+  DestroyWindow(window);return backendPassed?0:FAILED(outcome)?3:completed?5:4;
+ }
+--- a/source/rtx20/dx12_transfer.cpp
++++ b/source/rtx20/dx12_transfer.cpp
+@@ -121,11 +121,13 @@
+  context11_->Flush();
+  hr=queue_->Wait(handoffFence12_.Get(),target);
+  if(FAILED(hr))return failed("D3D12 queue Wait",hr);
+- // pending11_ stays true until the subsequent DX12 copy fence completes.
+- // That completion transitively proves the D3D11 signal, queue wait and copy.
++ // Sync: pending11_ clears after the subsequent DX12 copy fence completed,
++ // which transitively proves the D3D11 signal, queue wait and copy. Async
++ // (fix28-lock): it clears once the copy is submitted behind this queue
++ // wait; later copies on the queue follow it and quiesce() waits for all.
+  return S_OK;
+ }
+-HRESULT DX12Transfer::initialize(IDXGISwapChain* swap,ID3D12CommandQueue* queue){
++HRESULT DX12Transfer::initialize(IDXGISwapChain* swap,ID3D12CommandQueue* queue,bool asyncAllowed){
+  if(device12_)return step("initialize called twice",DXGI_ERROR_INVALID_CALL);
+  if(!presentation_queue(swap,queue,queue_))return step("presentation queue contract",DXGI_ERROR_UNSUPPORTED);
+  auto hr=step("GetDevice(D3D12)",queue_->GetDevice(IID_PPV_ARGS(&device12_)));if(FAILED(hr))return hr;
+@@ -184,12 +186,47 @@
+    nvs30::logf("[rtx20-dx12] Shared GPU fence unavailable hr=0x%08lx; using CPU-query handoff.\n",(unsigned long)handoff);
+   }
+  }
++ if(!staged_&&handoffContext11_&&asyncAllowed){
++  const auto async=initialize_async();
++  if(FAILED(async)){
++   const auto removed12=device12_->GetDeviceRemovedReason(),removed11=device11_->GetDeviceRemovedReason();
++   if(FAILED(removed12))return step("D3D12 health after async setup",removed12);
++   if(FAILED(removed11))return step("D3D11 health after async setup",removed11);
++   for(auto& a:ringAllocators_)a.Reset();for(auto& l:ringLists_)l.Reset();fence11_.Reset();
++   nvs30::logf("[rtx20-dx12] Asynchronous transfer unavailable hr=0x%08lx; bounded CPU completion per copy.\n",(unsigned long)async);
++  }else async_=true;
++ }
++ nvs30::logf("[rtx20-dx12] Transfer mode: %s.\n",async_?"async (GPU fences between D3D12 and D3D11, no CPU wait per copy)":
++  asyncAllowed?"sync (bounded CPU completion per copy)":"sync (Fix28 transfer: Dx12Transfer=sync, or Pacing is not locked)");
+  ++dx12_sessions;
+- nvs30::logf("[rtx20-dx12] Same-adapter D3D11/CUDA transfer ready: %ux%u format=%u queue=%p mode=%s handoff=%s; bounded DX12 completion.\n",width_,height_,unsigned(format_),queue_.Get(),staged_?"cpu-staging":"shared-texture",handoffContext11_?"gpu-fence":"cpu-query");
++ nvs30::logf("[rtx20-dx12] Same-adapter D3D11/CUDA transfer ready: %ux%u format=%u queue=%p mode=%s handoff=%s; %s.\n",width_,height_,unsigned(format_),queue_.Get(),staged_?"cpu-staging":"shared-texture",handoffContext11_?"gpu-fence":"cpu-query",
++  async_?"copies ordered by GPU fences, bounded completion on reuse and quiesce":"bounded DX12 completion");
+  return S_OK;
+ }
+-HRESULT DX12Transfer::wait12(){
+- return static_cast<HRESULT>(nvs30::gpu_wait::fence(value_,wait_ms,
++HRESULT DX12Transfer::initialize_async(){
++ // fence_ becomes shared so the D3D11 context can wait for D3D12 copies on
++ // the GPU. Nothing has been submitted with the unshared fence yet.
++ ComPtr<ID3D11Device5> device5;auto hr=device11_.As(&device5);if(FAILED(hr))return hr;
++ ComPtr<ID3D12Fence> shared;hr=device12_->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&shared));if(FAILED(hr))return hr;
++ SharedHandle handle;hr=device12_->CreateSharedHandle(shared.Get(),nullptr,GENERIC_ALL,nullptr,&handle.value);if(FAILED(hr))return hr;
++ ComPtr<ID3D11Fence> opened;hr=device5->OpenSharedFence(handle.value,IID_PPV_ARGS(&opened));if(FAILED(hr))return hr;
++ for(unsigned i=0;i<ring_size;++i){
++  hr=device12_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&ringAllocators_[i]));if(FAILED(hr))return hr;
++  hr=device12_->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,ringAllocators_[i].Get(),nullptr,IID_PPV_ARGS(&ringLists_[i]));if(FAILED(hr))return hr;
++  hr=ringLists_[i]->Close();if(FAILED(hr))return hr;
++ }
++ fence_=shared;fence11_=opened;value_=0;return S_OK;
++}
++HRESULT DX12Transfer::gpu_wait11(std::uint64_t target){
++ // GPU-side: D3D11 work queued after this starts once fence_ reaches target.
++ if(!target||fence_->GetCompletedValue()>=target)return S_OK;
++ const auto hr=handoffContext11_->Wait(fence11_.Get(),target);
++ if(FAILED(hr)){unsafe11_=true;nvs30::logf("[rtx20-dx12] D3D11 Wait on the copy fence failed hr=0x%08lx; session retained.\n",(unsigned long)hr);}
++ return hr;
++}
++HRESULT DX12Transfer::wait12(){return wait12(value_);}
++HRESULT DX12Transfer::wait12(std::uint64_t target){
++ return static_cast<HRESULT>(nvs30::gpu_wait::fence(target,wait_ms,
+   [&]{return fence_->GetCompletedValue();},[&](std::uint64_t v){return fence_->SetEventOnCompletion(v,event_);},
+   [&](unsigned ms)->HRESULT{auto r=WaitForSingleObject(event_,ms);return r==WAIT_OBJECT_0?S_OK:r==WAIT_TIMEOUT?HRESULT_FROM_WIN32(WAIT_TIMEOUT):HRESULT_FROM_WIN32(GetLastError());},
+   []{return GetTickCount64();}));
+@@ -216,6 +253,17 @@
+  // Staging and older drivers retain the bounded CPU-query synchronization.
+  auto hr=(handoffContext11_||!afterD3D11)?S_OK:wait11();if(FAILED(hr))return hr;
+  bool handedOff=false;
++ ID3D12CommandAllocator* allocator=allocator_.Get();ID3D12GraphicsCommandList* commands=commands_.Get();unsigned entry=0;
++ if(async_){
++  // Reuse an allocator only after its last copy completed. With 16 entries
++  // (about five frames of copies) DXGI's frame latency normally stops the
++  // CPU first; this wait is the bound, not the pacing.
++  entry=ringNext_%ring_size;
++  hr=wait12(ringValues_[entry]);
++  if(FAILED(hr)){submission_.failure=static_cast<std::int32_t>(hr);lost_=true;++dx12_transfer_failures;
++   nvs30::logf("[rtx20-dx12] Copy ring completion failed hr=0x%08lx; interpolation session disabled.\n",(unsigned long)hr);return hr;}
++  allocator=ringAllocators_[entry].Get();commands=ringLists_[entry].Get();
++ }
+  ComPtr<IDXGISwapChain3> current;hr=step("QueryInterface(current swapchain)",swap->QueryInterface(IID_PPV_ARGS(&current)));if(FAILED(hr))return hr;
+  DXGI_SWAP_CHAIN_DESC chain{};hr=swap->GetDesc(&chain);if(FAILED(hr))return hr;
+  hr=static_cast<HRESULT>(transfer_copy(submission_,[&]{return current->GetCurrentBackBufferIndex();},
+@@ -225,30 +273,38 @@
+    inflightBack_.Reset();auto result=swap->GetBuffer(index,IID_PPV_ARGS(&inflightBack_));if(FAILED(result))return result;
+    const auto d=inflightBack_->GetDesc();
+    if(d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.Width!=width_||d.Height!=height_||plain(d.Format)!=format_||d.SampleDesc.Count!=1||d.DepthOrArraySize!=1||d.MipLevels!=1)return DXGI_ERROR_INVALID_CALL;
+-   result=allocator_->Reset();if(FAILED(result))return result;
+-   result=commands_->Reset(allocator_.Get(),nullptr);if(FAILED(result))return result;
++   result=allocator->Reset();if(FAILED(result))return result;
++   result=commands->Reset(allocator,nullptr);if(FAILED(result))return result;
+    const auto backState=capture?D3D12_RESOURCE_STATE_COPY_SOURCE:D3D12_RESOURCE_STATE_COPY_DEST;
+    const auto sharedState=capture?D3D12_RESOURCE_STATE_COPY_DEST:D3D12_RESOURCE_STATE_COPY_SOURCE;
+    // At entry/exit every game buffer is PRESENT. Only shared textures
+    // transition COMMON<->COPY. Staging buffers keep their mandated heap states.
+    D3D12_RESOURCE_BARRIER begin[]={barrier(inflightBack_.Get(),D3D12_RESOURCE_STATE_PRESENT,backState),barrier(sharedResource,D3D12_RESOURCE_STATE_COMMON,sharedState)};
+-   commands_->ResourceBarrier(staged_?1:2,begin);
++   commands->ResourceBarrier(staged_?1:2,begin);
+    if(staged_){
+     D3D12_TEXTURE_COPY_LOCATION image{};image.pResource=inflightBack_.Get();image.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+     D3D12_TEXTURE_COPY_LOCATION buffer{};buffer.pResource=sharedResource;buffer.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;buffer.PlacedFootprint=footprint_;
+-    commands_->CopyTextureRegion(capture?&buffer:&image,0,0,0,capture?&image:&buffer,nullptr);
+-   }else commands_->CopyResource(capture?sharedResource:inflightBack_.Get(),capture?inflightBack_.Get():sharedResource);
++    commands->CopyTextureRegion(capture?&buffer:&image,0,0,0,capture?&image:&buffer,nullptr);
++   }else commands->CopyResource(capture?sharedResource:inflightBack_.Get(),capture?inflightBack_.Get():sharedResource);
+    D3D12_RESOURCE_BARRIER end[]={barrier(inflightBack_.Get(),backState,D3D12_RESOURCE_STATE_PRESENT),barrier(sharedResource,sharedState,D3D12_RESOURCE_STATE_COMMON)};
+-   commands_->ResourceBarrier(staged_?1:2,end);
+-   result=step("Close(copy command list)",commands_->Close());if(FAILED(result))return result;
++   commands->ResourceBarrier(staged_?1:2,end);
++   result=step("Close(copy command list)",commands->Close());if(FAILED(result))return result;
+    // Do not enqueue a GPU wait until recording has succeeded. Successful Wait
+    // is followed directly by Execute and the existing bounded completion wait.
+    if(afterD3D11&&handoffContext11_&&pending11_){result=handoff11();if(FAILED(result))return result;handedOff=true;}
+    return S_OK;
+-  },[&]{ID3D12CommandList* list=commands_.Get();queue_->ExecuteCommandLists(1,&list);},
+-  [&]()->HRESULT{auto result=step("Signal(copy fence)",queue_->Signal(fence_.Get(),++value_));return FAILED(result)?result:step("Wait(copy fence)",wait12());}));
++  },[&]{ID3D12CommandList* list=commands;queue_->ExecuteCommandLists(1,&list);},
++  [&]()->HRESULT{auto result=step("Signal(copy fence)",queue_->Signal(fence_.Get(),++value_));
++   if(async_){if(SUCCEEDED(result)){ringValues_[entry]=value_;++ringNext_;}return result;}
++   return FAILED(result)?result:step("Wait(copy fence)",wait12());}));
++ // Async: the queue now waits for all D3D11 work handed off so far, so later
++ // copies on this queue follow it. Sync: the copy fence completed.
+  if(SUCCEEDED(hr)&&handedOff)pending11_=false;
+- if(!submission_.in_flight)inflightBack_.Reset();
++ // The swapchain owns its buffers and the game drains its queue before a
++ // resize; holding the reference across Presents would fail ResizeBuffers.
++ if(async_||!submission_.in_flight)inflightBack_.Reset();
++ // The real frame is in the snapshot for D3D11 work queued after this.
++ if(SUCCEEDED(hr)&&async_&&capture)hr=gpu_wait11(value_);
+  if(FAILED(hr)){++dx12_transfer_failures;nvs30::logf("[rtx20-dx12] Copy failed hr=0x%08lx in_flight=%d; interpolation session disabled.\n",(unsigned long)hr,submission_.in_flight?1:0);}
+  else if(capture)++dx12_captures;else ++dx12_writes;
+  return hr;
+@@ -303,8 +359,14 @@
+  if(!same_object(owner.Get(),device11_.Get())||d.Width!=width_||d.Height!=height_||d.Format!=format_||d.MipLevels!=1||d.ArraySize!=1||d.SampleDesc.Count!=1)
+   return step("generated texture contract",E_INVALIDARG);
+  if(staged_){auto hr=upload_generated(generated);if(FAILED(hr)){++dx12_transfer_failures;return hr;}}
+- else{pending11_=true;context11_->CopyResource(output11_.Get(),generated);}
+- return copy(swap,output12_.Get(),false,true);
++ else{
++  // Async: the previous generated copy may still read output12_.
++  if(async_){auto hr=gpu_wait11(outputRead_);if(FAILED(hr)){++dx12_transfer_failures;return hr;}}
++  pending11_=true;context11_->CopyResource(output11_.Get(),generated);
++ }
++ const auto hr=copy(swap,output12_.Get(),false,true);
++ if(SUCCEEDED(hr)&&async_)outputRead_=value_;
++ return hr;
+ }
+ HRESULT DX12Transfer::write_original(IDXGISwapChain* swap,unsigned slot){
+  if(slot>=slots())return E_INVALIDARG;
+@@ -312,6 +374,11 @@
+  // (in the pipelined order that work is the next pair's flow/synthesis).
+  return copy(swap,staged_?originalUpload12_.Get():snapshot12_[slot].Get(),false,false);
+ }
+-bool DX12Transfer::quiesce(){return !uncertain()&&SUCCEEDED(wait11());}
++bool DX12Transfer::quiesce(){
++ if(uncertain())return false;
++ // Async: nothing waited for the copies; all of them must complete first.
++ if(async_&&value_){const auto hr=wait12();if(FAILED(hr)){lost_=true;nvs30::logf("[rtx20-dx12] Quiesce: copy fence hr=0x%08lx; session retained.\n",(unsigned long)hr);return false;}}
++ return SUCCEEDED(wait11());
++}
+ DX12Transfer::~DX12Transfer(){if(event_)CloseHandle(event_);}
+ }
+--- a/source/rtx20/dx12_transfer.hpp
++++ b/source/rtx20/dx12_transfer.hpp
+@@ -16,6 +16,20 @@
+  nvs30::ComPtr<ID3D12CommandAllocator> allocator_;
+  nvs30::ComPtr<ID3D12GraphicsCommandList> commands_;
+  nvs30::ComPtr<ID3D12Fence> fence_;
++ // fix28-lock, asynchronous transfer: the copies are ordered on the GPU by
++ // shared fences (D3D12 copy -> D3D11 Wait, D3D11 Signal -> D3D12 queue Wait)
++ // and the CPU never waits for them. Each copy records into its own
++ // allocator from a ring; one is reused only after its fence value. The
++ // synchronous Fix28 path (a bounded CPU wait after every copy) remains for
++ // staging, drivers without shared fences, and Dx12Transfer=sync.
++ static constexpr unsigned ring_size=16;
++ nvs30::ComPtr<ID3D12CommandAllocator> ringAllocators_[ring_size];
++ nvs30::ComPtr<ID3D12GraphicsCommandList> ringLists_[ring_size];
++ std::uint64_t ringValues_[ring_size]{};
++ unsigned ringNext_{};
++ nvs30::ComPtr<ID3D11Fence> fence11_;   // fence_ opened on the D3D11 device
++ std::uint64_t outputRead_{};           // last D3D12 copy reading output12_
++ bool async_{},lost_{};
+  // Two snapshot slots: the pipelined order restores the previous real frame
+  // while the current one is captured. Staging mode has one slot.
+  nvs30::ComPtr<ID3D12Resource> snapshot12_[2],output12_,inflightBack_;
+@@ -44,13 +58,18 @@
+  HRESULT initialize_handoff();
+  HRESULT handoff11();
+  HRESULT wait12();
++ HRESULT wait12(std::uint64_t target);
+  HRESULT wait11();
++ HRESULT initialize_async();
++ HRESULT gpu_wait11(std::uint64_t target);
+  // afterD3D11: the copy must follow outstanding D3D11 work (the capture
+  // overwrites a slot D3D11 reads; the generated frame is written by D3D11).
+  HRESULT copy(IDXGISwapChain*,ID3D12Resource*,bool capture,bool afterD3D11);
+ public:
+  ~DX12Transfer()override;
+- HRESULT initialize(IDXGISwapChain*,ID3D12CommandQueue*);
++ // asyncAllowed: Dx12Transfer setting (default async).
++ HRESULT initialize(IDXGISwapChain*,ID3D12CommandQueue*,bool asyncAllowed=true);
++ bool asynchronous()const{return async_;}
+  ID3D11Device* device()const override{return device11_.Get();}
+  ID3D11Texture2D* snapshot(unsigned slot=0)const override{return snapshot11_[slot&1].Get();}
+  unsigned slots()const override{return snapshot11_[1]?2u:1u;}
+@@ -59,6 +78,6 @@
+  HRESULT write_generated(IDXGISwapChain*,ID3D11Texture2D*)override;
+  HRESULT write_original(IDXGISwapChain*,unsigned slot=0)override;
+  bool quiesce()override;
+- bool uncertain()const override{return submission_.in_flight||unsafe11_;}
++ bool uncertain()const override{return submission_.in_flight||unsafe11_||lost_;}
+ };
+ }
+--- a/source/rtx20/dxgi_hooks.cpp
++++ b/source/rtx20/dxgi_hooks.cpp
+@@ -180,6 +180,8 @@
+  // Set when a Present reached the game without our pair (busy/queue pass-
+  // through); the pipelined order must not then show an older pair.
+  std::atomic_bool presentedOutside{false};std::mutex mutex;sm20::Interpolator interpolator;bool keyHeld=false;bool enabled=true;sm20::PresentationRevision revision;
++ // fix28-lock: on-screen pacing in Pacing=locked (DXGI frame statistics).
++ sm20::PacingMonitor pacing;unsigned perImage{},statisticsFailures{};std::atomic_bool statisticsUnavailable{false};
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id,void** out)override{if(!out)return E_POINTER;*out=nullptr;if(id!=IID_IUnknown)return E_NOINTERFACE;*out=static_cast<IUnknown*>(this);AddRef();return S_OK;}
+  ULONG STDMETHODCALLTYPE AddRef()override{return ++refs;}
+  ULONG STDMETHODCALLTYPE Release()override{auto n=--refs;if(!n)delete this;return n;}
+@@ -211,6 +213,41 @@
+   registerSwapchain(swap,nullptr);
+  }catch(...){}
+ }
++// fix28-lock: after each locked real frame, read what the display showed.
++// The statistics calls run outside the mutex; the monitor updates under it.
++void measurePacing(IDXGISwapChain* swap,Context& state,const sm20::PairPlan& plan) noexcept {
++ try{
++  {std::scoped_lock hold(state.mutex);if(!state.interpolator.locked())return;}
++  DXGI_FRAME_STATISTICS st{};UINT submitted=0;
++  HRESULT hr=swap->GetFrameStatistics(&st);
++  if(SUCCEEDED(hr))hr=swap->GetLastPresentCount(&submitted);
++  std::scoped_lock hold(state.mutex);
++  if(plan.generated&&plan.generatedInterval==plan.realInterval)state.perImage=plan.generatedInterval;
++  if(hr==DXGI_ERROR_FRAME_STATISTICS_DISJOINT){state.pacing.rebase();return;}
++  if(FAILED(hr)){
++   // Some swapchains report nothing until the first frame was shown; only
++   // 120 failures in a row (about two seconds) mean no statistics.
++   state.pacing.rebase();
++   if(++state.statisticsFailures>=120){
++    state.statisticsUnavailable=true;
++    logf("[rtx20] Pacing=locked: DXGI frame statistics unavailable (hr=0x%08lx); on-screen pacing is not measured for this swapchain.\n",(unsigned long)hr);
++   }
++   return;
++  }
++  state.statisticsFailures=0;
++  if(!st.PresentCount&&!st.PresentRefreshCount)return; // nothing shown yet
++  sm20::PacingMonitor::Window w;
++  if(state.pacing.sample(sm20::pacing::now(),submitted,st.PresentCount,st.PresentRefreshCount,state.perImage,w)){
++   using namespace sm20::performance;
++   locked_submitted+=w.submitted;locked_shown+=w.shown;locked_refreshes+=w.refreshes;
++   locked_repeated_refreshes+=w.repeats;locked_stutter_frames+=w.stutters;
++   const double secs=w.seconds>0?w.seconds:1;
++   logf("[rtx20] locked pacing, last %.0f s (measured on the display): %llu real frames (%.1f FPS), %llu Presents submitted, %llu shown (%.1f FPS) on %llu refreshes; "
++        "%llu repeated refresh(es) in %llu frame(s)%s.\n",secs,w.frames,w.frames/secs,w.submitted,w.shown,w.shown/secs,w.refreshes,w.repeats,w.stutters,
++        w.repeats?" (stutter: a frame stayed on screen longer; see README)":", even 2x");
++  }
++ }catch(...){}
++}
+ template<class Forward> HRESULT dispatch(IDXGISwapChain* swap,UINT sync,UINT flags,const DXGI_PRESENT_PARAMETERS* params,Forward forward,bool hooked=true){
+  const bool partial=params&&(params->DirtyRectsCount||params->pScrollRect||params->pScrollOffset);
+  auto original=[&](Skip reason){++passthroughs;recordSkip(reason,sync,flags,partial);return forward(sync,flags);};
+@@ -306,6 +343,7 @@
+   },[&]{generatedAccepted=true;++sm20::generated_submissions;},[]{
+    if(++generatedQueueBusy==1)logf("[rtx20] Generated queue busy: skipped optional generated Present; restoring and forwarding the original frame without a synthetic VSync wait.\n");
+   }));
++ if(SUCCEEDED(result)&&plan.paced&&!interrupted&&!state->statisticsUnavailable)measurePacing(swap,*state.Get(),plan);
+  std::scoped_lock hold(state->mutex);
+  return FAILED(state->interpolator.terminal_error())?state->interpolator.terminal_error():result;
+ }
+@@ -871,7 +909,7 @@
+ }
+ extern "C" __declspec(dllexport) unsigned WINAPI SmoothMotionGetStatus(char* out,unsigned size){
+  char timingStatus[2048]{};sm20::performance::json(timingStatus,sizeof timingStatus);
+- char gpuStatus[1024]{};sm20::performance::gpu_json(gpuStatus,sizeof gpuStatus);
++ char gpuStatus[2048]{};sm20::performance::gpu_json(gpuStatus,sizeof gpuStatus);
+  char skipStatus[1024]{};size_t used=0;
+  for(size_t i=0;i<skips.size();++i){
+   const int written=std::snprintf(skipStatus+used,sizeof(skipStatus)-used,"%s\"%s\":%llu",i?",":"",skipNames[i],skips[i].load());
+--- a/source/rtx20/interpolator.cpp
++++ b/source/rtx20/interpolator.cpp
+@@ -325,6 +325,9 @@
+  // D3D11 event marking when the GPU reached the generated Present.
+  PairPlan plan{};FrameRing ring;FrameRing::Step step{};
+  bool pipelineAvailable{},pipelined{};
++ // fix28-lock: refreshes per real frame in Pacing=locked (2 or 4) and
++ // whether the swapchain is a Vulkan bridge (external presentation).
++ unsigned lockedDivisor{2};bool external{};
+  ComPtr<ID3D11Query> shown;
+  double lastSpacingLog{};unsigned loggedSpacingUs{};
+  double frameInterval{};std::chrono::steady_clock::time_point lastAcceptedTime{};
+@@ -366,10 +369,22 @@
+  }
+  void initialize(IDXGISwapChain* swap,ID3D12CommandQueue* queue,ExternalPresentation* external){
+   ComPtr<ID3D11Texture2D> back;
++  this->external=external!=nullptr;
+   if(external){
+    auto transfer=external->create_transfer();if(!transfer)throw std::runtime_error("Vulkan bridge initialization");
+    back=transfer->snapshot();device=transfer->device();dx12=std::move(transfer);
+-  }else if(queue){auto transfer=std::make_unique<DX12Transfer>();require(transfer->initialize(swap,queue),"DX12 transfer initialization");back=transfer->snapshot();device=transfer->device();dx12=std::move(transfer);}
++  }else if(queue){
++   // fix28-lock: Dx12Transfer=async (default) orders the D3D12/D3D11 copies
++   // with GPU fences instead of a CPU wait after every copy; sync is Fix28.
++   // Only Pacing=locked uses it: there the display's refreshes space the
++   // frames. The other modes time spacing from the Present call, which in
++   // Fix28 followed completed copies; they keep the Fix28 transfer.
++   const bool lockedPacing=parse_pacing(read_setting(L"SM86_PACING",L"Pacing",L"locked").c_str())==Pacing::locked;
++   const bool async=lockedPacing&&!setting_equals(read_setting(L"SM86_DX12_TRANSFER",L"Dx12Transfer",L"async").c_str(),L"sync");
++   auto transfer=std::make_unique<DX12Transfer>();require(transfer->initialize(swap,queue,async),"DX12 transfer initialization");
++   performance::dx12_transfer=transfer->asynchronous()?"async":"sync";
++   back=transfer->snapshot();device=transfer->device();dx12=std::move(transfer);
++  }
+   else{require(swap->GetBuffer(0,IID_PPV_ARGS(&back)),"D3D11 backbuffer");require(swap->GetDevice(IID_PPV_ARGS(&device)),"D3D11 device");}
+   DXGI_SWAP_CHAIN_DESC chain{};
+   if(external)chain.Windowed=TRUE;else require(swap->GetDesc(&chain),"GetDesc");
+@@ -451,6 +466,10 @@
+   flowSetting=read_flow_setting();
+   qualitySetting=read_quality_setting();
+   budget.fraction=read_gpu_budget();
++  // fix28-lock: presentation only. The flow model (resolution, quality,
++  // GPU budget) is chosen exactly as in Fix28/qua2.
++  presentation.pacing=parse_pacing(read_setting(L"SM86_PACING",L"Pacing",L"locked").c_str());
++  lockedDivisor=external?2u:parse_locked_divisor(read_setting(L"SM86_LOCKED_BASE_RATE",L"LockedBaseRate",L"half").c_str());
+   performance::gpu_budget_permille=static_cast<unsigned>(budget.fraction*1000+0.5);
+   if(budget.fraction>0)logf("[rtx20] GPU budget: frame generation may use %.0f%% of each real frame's time; SLOW, MEDIUM or half-resolution flow is chosen by measured cost (GpuBudget=0 disables the limit).\n",budget.fraction*100);
+   else logf("[rtx20] GPU budget: unlimited (GpuBudget=0).\n");
+@@ -464,10 +483,13 @@
+   logf("[rtx20] flow_quality setting=%s; high-quality (SLOW preset) flow %s.\n",flow_quality_name(qualitySetting),
+        !qualityFlow?"unavailable or disabled":qualitySetting==FlowQuality::high?"ready, always used at full resolution":"ready, automatic below 55 real FPS at full resolution while its cost fits the GPU budget");
+   presentation.generateAboveRefresh=setting_on(read_setting(L"SM86_GENERATE_ABOVE_REFRESH",L"GenerateAboveRefresh",L"0"));
+-  presentation.pacing=parse_pacing(read_setting(L"SM86_PACING",L"Pacing",L"auto").c_str());
+   presentation.refreshHz=refreshHz;
+   presentation.minimumBase=parse_minimum_base(read_setting(L"SM86_MINIMUM_BASE_RATE",L"MinimumBaseRate",L"auto").c_str());
+   performance::pacing_setting=pacing_name(presentation.pacing);
++  if(presentation.pacing==Pacing::locked)
++   logf("[rtx20] presentation: display %.0f Hz; Pacing=locked: always 2x, generated and real frame %u refresh(es) each, game held at %.1f real FPS (%s), %.1f displayed; never paused, no cost guard.\n",
++        refreshHz,lockedDivisor/2,refreshHz>1?refreshHz/lockedDivisor:0.0,lockedDivisor==4?"LockedBaseRate=quarter":"LockedBaseRate=half",refreshHz>1?2*refreshHz/lockedDivisor:0.0);
++  else
+   logf("[rtx20] presentation: display %.0f Hz; pause when the real rate reaches it %s; Pacing=%s (auto/low_latency/smooth show each generated frame for half a real-frame interval).\n",refreshHz,
+        presentation.generateAboveRefresh?"disabled (GenerateAboveRefresh=1)":"enabled",pacing_name(presentation.pacing));
+   if(nativeFlow&&flowSetting!=FlowResolution::full){
+@@ -528,7 +550,15 @@
+     require(device->CreateShaderResourceView(t.texture.Get(),&vd,&t.srv),"CreateSRV(resolve)");
+    }
+    pipelineAvailable=true;
+-  }else{for(auto& t:saved)texture(t,width,height,plain,false);pipelineAvailable=true;}
++  }else{
++   for(auto& t:saved)texture(t,width,height,plain,false);
++   // fix28-lock: the Vulkan bridge always presents the game's own current
++   // image after the generated one; it cannot restore the previous real
++   // frame. The pipelined order would show frame N, the pair (N-2, N-1),
++   // then N+1: a step backwards on every frame (Pacing=smooth, or auto
++   // after it learned the pipelined order, on MAILBOX/IMMEDIATE chains).
++   pipelineAvailable=!external;
++  }
+   D3D11_QUERY_DESC shownDesc{D3D11_QUERY_EVENT,0};if(FAILED(device->CreateQuery(&shownDesc,&shown)))shown.Reset();
+   // Grid of the two distinct motions crossing each 4x4 cell at the midpoint.
+   texture(projected,grid_extent(width),grid_extent(height),DXGI_FORMAT_R32G32B32A32_FLOAT,true);
+@@ -582,7 +612,7 @@
+   }
+   logf("[rtx20] flow_resolution setting=%s; half-resolution flow %s%s.\n",flow_setting_name(flowSetting),halfFlow?"ready ":"unavailable",
+        halfFlow?(std::to_string(halfWidth)+"x"+std::to_string(halfHeight)+" (8-pixel cells), automatic above "+std::to_string(int(half_flow_enter_fps))+" real FPS").c_str():"");
+-  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v12 (flow refined against the frames where NVOF drags thin objects or smears motion across outlines, NVOF temporal hints, coherence pass against fragments, textured-match foreground priority, dominant-motion silhouettes and disocclusion fill, soft-content dissolve where no motion validates, static glyph and zero-motion protection, static overlay mask for crosshairs/HUD, flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
++  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v14 (flow refined against the frames where NVOF drags thin objects or smears motion across outlines, NVOF temporal hints, coherence pass against fragments, textured-match foreground priority, dominant-motion silhouettes and disocclusion fill, soft-content dissolve where no motion validates, static glyph and zero-motion protection, static overlay mask for crosshairs/HUD, flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
+  }
+  bool quiesce(){
+   if(cudaFault)return false;
+@@ -652,7 +682,8 @@
+         state==Presentation::paused?"; generated frames would not be visible (GenerateAboveRefresh=1 overrides)":
+         state==Presentation::timed?"; generated frame, then the real frame half a real-frame interval later":
+         state==Presentation::pipelined?"; previous pair shown with even spacing while the next pair is computed (one real frame more latency)":
+-        state==Presentation::vblank?"; generated and real frame on consecutive refreshes":"");
++        state==Presentation::vblank?"; generated and real frame on consecutive refreshes":
++        state==Presentation::locked?"; locked 2x: generated and real frame on refreshes of their own, every frame":"");
+    if(presentation.spaced())logf("[rtx20] spacing: reference %.1f real FPS, wait %.1f ms (ideal %.1f ms).\n",reference,wait/1000.0,ideal);
+    if(state==Presentation::measuring&&before==Presentation::native)logf("[rtx20] native rate: %.1f FPS without generation.\n",presentation.nativeFps);
+    if(state==Presentation::paused&&presentation.counterproductive)
+@@ -734,7 +765,7 @@
+   stamp(timer,1);
+   const double wait=vsync?0:presentation.wait_seconds();
+   plan.paced=presentation.paced()||(presentation.spaced()&&vsync);
+-  if(plan.paced){const auto intervals=paired_intervals(sync);plan.generatedInterval=intervals.generated;plan.realInterval=intervals.real;}
++  if(plan.paced){const auto intervals=paired_intervals(sync,presentation.locked()?lockedDivisor:1);plan.generatedInterval=intervals.generated;plan.realInterval=intervals.real;}
+   if(pipelined){
+    // Present the pair computed at the previous Present (its generated frame,
+    // then that real frame); the next pair is computed during the wait.
+@@ -744,11 +775,18 @@
+    if(plan.generated)++performance::pipelined_pairs;
+    return plan.generated;
+   }
+-  if(!interpolating)return false;
++  if(!interpolating){
++   // fix28-lock: no pair yet (first frame after a reset or a gap). The real
++   // frame takes both slots so the cadence is unchanged; only its content
++   // repeats once.
++   if(presentation.locked()){plan.hold=true;plan.realInterval=plan.generatedInterval+plan.realInterval;++performance::locked_held_frames;}
++   return false;
++  }
+   compute_pair(timer,false);
+   plan.generated=true;plan.spacing=presentation.spaced()?wait:0;
+   if(plan.spacing>0)++performance::timed_pairs;
+   if(plan.paced)++performance::paced_pairs;
++  if(presentation.locked())++performance::locked_pairs;
+   return true;
+  }
+  // Optical flow and synthesis of the pair (frames[0], frames[1]).
+@@ -960,10 +998,19 @@
+  impl_->history=true;impl_->captured=false;impl_->lastAccepted=GetTickCount64();
+  const auto now=std::chrono::steady_clock::now();
+  if(impl_->lastAcceptedTime.time_since_epoch().count())
+-  impl_->frameInterval=update_frame_interval(impl_->frameInterval,std::chrono::duration<double>(now-impl_->lastAcceptedTime).count());
++  {
++  const double seconds=std::chrono::duration<double>(now-impl_->lastAcceptedTime).count();
++  impl_->frameInterval=update_frame_interval(impl_->frameInterval,seconds);
++  // fix28-lock: a real frame that took more refreshes than its slots missed
++  // the cadence (the display repeated a frame). Counted for the log.
++  const auto& plan=impl_->plan;
++  const unsigned slots=plan.hold?plan.realInterval:plan.generatedInterval+plan.realInterval;
++  if(impl_->presentation.locked()&&locked_frame_late(seconds,impl_->refreshHz,slots))++performance::locked_late_frames;
++  }
+  impl_->lastAcceptedTime=now;
+ }
+ void Interpolator::break_pipeline(){if(impl_){impl_->ring.reset();}}
++bool Interpolator::locked() const{return impl_&&!failed_&&impl_->presentation.locked();}
+ void Interpolator::discard_history(){
+  if(!impl_)return;
+  impl_->history=impl_->captured=impl_->generatedReady=false;impl_->ring.reset();impl_->plan=PairPlan{};
+--- a/source/rtx20/interpolator.hpp
++++ b/source/rtx20/interpolator.hpp
+@@ -53,5 +53,7 @@
+  bool ready() const;
+  // Presentation plan decided by the last prepare().
+  PairPlan plan() const;
++ // fix28-lock: the session presents in Pacing=locked.
++ bool locked() const;
+ };
+ }
+--- a/source/rtx20/performance.hpp
++++ b/source/rtx20/performance.hpp
+@@ -40,7 +40,7 @@
+ // real rate already reached the display refresh, the configured pacing, and
+ // the current state, spacing wait and reference real rate.
+ inline std::atomic_ullong paced_pairs{},timed_pairs{},pipelined_pairs{},paused_frames{},spacing_wait_us{};
+-inline std::atomic<const char*> pacing_setting{"auto"},presentation_state{"measuring"};
++inline std::atomic<const char*> pacing_setting{"auto"},presentation_state{"measuring"},dx12_transfer{"none"};
+ inline std::atomic_uint spacing_us{},reference_us{};
+ // GPU budget (Fix15): limit in permille of the real frame interval, flow mode
+ // in use, and the measured GPU time per pair of each flow mode (0: unknown).
+@@ -48,6 +48,11 @@
+ inline std::atomic<const char*> flow_mode{"medium"};
+ // Fix17 cost guard: native rate (x10) and generation pauses it caused.
+ inline std::atomic_uint native_fps_x10{},guard_pauses{};
++// fix28-lock: Pacing=locked pairs, real frames shown in both slots for want
++// of a pair (after a reset), and real frames that missed their refreshes.
++inline std::atomic_ullong locked_pairs{},locked_held_frames{},locked_late_frames{};
++// fix28-lock: measured on the display (DXGI frame statistics), cumulative.
++inline std::atomic_ullong locked_shown{},locked_refreshes{},locked_repeated_refreshes{},locked_stutter_frames{},locked_submitted{};
+ inline void gpu_json(char* buffer,std::size_t size){
+  if(!size)return;buffer[0]=0;std::size_t used=0;
+  for(unsigned i=0;i<gpu_samples.size();++i){
+@@ -59,12 +64,15 @@
+  const unsigned reference=reference_us.load(std::memory_order_relaxed);
+  const int n=std::snprintf(buffer+used,size-used,"\"flow_pairs_full\":%llu,\"flow_pairs_half\":%llu,\"flow_pairs_high_quality\":%llu},\"pacing_setting\":\"%s\",\"presentation\":\"%s\","
+   "\"spacing_us\":%u,\"reference_fps\":%.1f,\"timed_pairs\":%llu,\"pipelined_pairs\":%llu,\"paced_pairs\":%llu,\"spacing_wait_us\":%llu,\"generation_paused_frames\":%llu,"
+-  "\"gpu_budget_percent\":%.1f,\"flow_mode\":\"%s\",\"pair_gpu_us\":{\"slow\":%u,\"medium\":%u,\"half\":%u},\"native_fps\":%.1f,\"guard_pauses\":%u",
++  "\"gpu_budget_percent\":%.1f,\"flow_mode\":\"%s\",\"pair_gpu_us\":{\"slow\":%u,\"medium\":%u,\"half\":%u},\"native_fps\":%.1f,\"guard_pauses\":%u,\"locked_pairs\":%llu,\"locked_held_frames\":%llu,\"locked_late_frames\":%llu,\"dx12_transfer\":\"%s\",\"display\":{\"submitted\":%llu,\"shown\":%llu,\"refreshes\":%llu,\"repeated_refreshes\":%llu,\"stutter_frames\":%llu}",
+   full_flow_pairs.load(std::memory_order_relaxed),half_flow_pairs.load(std::memory_order_relaxed),quality_flow_pairs.load(std::memory_order_relaxed),pacing_setting.load(),presentation_state.load(),
+   spacing_us.load(std::memory_order_relaxed),reference?1e6/reference:0.0,timed_pairs.load(std::memory_order_relaxed),pipelined_pairs.load(std::memory_order_relaxed),
+   paced_pairs.load(std::memory_order_relaxed),spacing_wait_us.load(std::memory_order_relaxed),paused_frames.load(std::memory_order_relaxed),
+   gpu_budget_permille.load(std::memory_order_relaxed)/10.0,flow_mode.load(),pair_gpu_us_slow.load(std::memory_order_relaxed),pair_gpu_us_medium.load(std::memory_order_relaxed),pair_gpu_us_half.load(std::memory_order_relaxed),
+-  native_fps_x10.load(std::memory_order_relaxed)/10.0,guard_pauses.load(std::memory_order_relaxed));
++  native_fps_x10.load(std::memory_order_relaxed)/10.0,guard_pauses.load(std::memory_order_relaxed),
++  locked_pairs.load(std::memory_order_relaxed),locked_held_frames.load(std::memory_order_relaxed),locked_late_frames.load(std::memory_order_relaxed),dx12_transfer.load(),
++  locked_submitted.load(std::memory_order_relaxed),locked_shown.load(std::memory_order_relaxed),locked_refreshes.load(std::memory_order_relaxed),
++  locked_repeated_refreshes.load(std::memory_order_relaxed),locked_stutter_frames.load(std::memory_order_relaxed));
+  if(n<0||static_cast<std::size_t>(n)>=size-used)buffer[0]=0;
+ }
+ // Cumulative CPU wall time, including waits. These are not GPU durations or
 --- a/source/rtx20/policy.hpp
 +++ b/source/rtx20/policy.hpp
 @@ -20,8 +20,12 @@
@@ -15,7 +531,7 @@
   const unsigned generated=n/2<1?1:n/2;
   return {generated,n-generated<1?1:n-generated};
  }
-@@ -193,6 +197,20 @@
+@@ -193,6 +197,58 @@
   if(!digits||*value)return 0.65;
   return v<=0?0:(v>=100?1:v/100);
  }
@@ -33,10 +549,48 @@
 +inline bool locked_frame_late(double interval,double refreshHz,unsigned divisor) {
 + return refreshHz>1&&interval>0&&interval<0.25&&interval>1.5*divisor/refreshHz;
 +}
++// fix28-lock: what the display showed in Pacing=locked, from DXGI frame
++// statistics sampled after each real frame. PresentCount and
++// PresentRefreshCount describe the last Present the display showed, so for
++// any two samples the refreshes between their shown Presents equal the shown
++// Presents times their refreshes each, unless an image stayed on screen
++// longer (a repeated refresh: a visible stutter). The lag of the statistics
++// behind the submissions does not change that difference.
++struct PacingMonitor {
++ struct Window {
++  unsigned long long frames{},submitted{},shown{},refreshes{},repeats{},stutters{};
++  double start{-1},seconds{};
++ };
++ Window window;
++ bool have{};std::uint32_t lastSubmitted{},lastShown{},lastRefresh{};
++ unsigned windows{};
++ // Ten-second windows for the first minute, then one per minute.
++ double period()const{return windows<6?10.0:60.0;}
++ void rebase(){have=false;}
++ // perImage: refreshes each shown image should take (1 half, 2 quarter).
++ // Returns true when a window completed; its totals are in `done`.
++ bool sample(double now,std::uint32_t submitted,std::uint32_t shown,std::uint32_t refresh,unsigned perImage,Window& done){
++  if(window.start<0)window.start=now;
++  if(have){
++   const std::uint32_t ds=submitted-lastSubmitted,dp=shown-lastShown,dr=refresh-lastRefresh;
++   // Counters can restart (mode changes): ignore implausible steps.
++   if(ds<=64&&dp<=64&&dr<=256&&(dp||!dr)){
++    ++window.frames;window.submitted+=ds;window.shown+=dp;window.refreshes+=dr;
++    const unsigned long long expected=static_cast<unsigned long long>(dp)*(perImage?perImage:1);
++    if(dr>expected){window.repeats+=dr-expected;++window.stutters;}
++   }
++  }
++  have=true;lastSubmitted=submitted;lastShown=shown;lastRefresh=refresh;
++  if(now-window.start>=period()){
++   window.seconds=now-window.start;done=window;window=Window{};window.start=now;++windows;return true;
++  }
++  return false;
++ }
++};
  // Exponential average of the real frame interval; gaps longer than the
  // history window (pauses, F11, loading) restart the measurement.
  inline double update_frame_interval(double average,double seconds) {
-@@ -240,20 +258,31 @@
+@@ -240,20 +296,31 @@
  // reference measured across loading hitches (2.8 FPS). Both measurements now
  // use the median interval and restart on any hitch, and a guard compares the
  // displayed rate with the native rate.
@@ -73,7 +627,7 @@
   return names[static_cast<int>(p)];
  }
  // Median of frame intervals collected over a short measurement. Any interval
-@@ -336,6 +365,8 @@
+@@ -336,6 +403,8 @@
   // Once per real frame; realFps is the running average of the real rate.
   // spacingApplied: false for VSync pairs (no CPU wait to control).
   Presentation update(double now,double realFps,bool spacingApplied=true){
@@ -82,7 +636,7 @@
    const bool generatingNow=state!=Presentation::paused&&state!=Presentation::native;
    const bool visible=generateAboveRefresh||generation_useful(generatingNow,realFps,refreshHz);
    switch(state){
-@@ -355,6 +386,7 @@
+@@ -355,6 +424,7 @@
       else enter(pacing==Pacing::smooth||(pacing==Pacing::automatic&&learnedPipeline)?Presentation::pipelined:Presentation::timed,now);
      }
      break;
@@ -90,7 +644,7 @@
     case Presentation::immediate:
     case Presentation::vblank:
      if(!visible){pause(now,false);break;}
-@@ -459,7 +491,8 @@
+@@ -459,7 +529,8 @@
   bool generating() const {return state!=Presentation::paused&&state!=Presentation::native;}
   bool spaced() const {return state==Presentation::timed||state==Presentation::pipelined;}
   bool pipelined() const {return state==Presentation::pipelined;}
@@ -100,297 +654,14 @@
  };
  // Fix26 (World of Warcraft, nvsmooth30_63.log): a D3D12 swapchain adopted at
  // its first Present (the game created it before any hook could see the
---- a/source/rtx20/present_sequence.hpp
-+++ b/source/rtx20/present_sequence.hpp
-@@ -45,6 +45,10 @@
-  bool restore{};     // write a real frame even without a generated Present
-  bool compute{};     // run `between` even without a generated Present
-  double spacing{};   // seconds from generated visibility to the real Present
-+ // fix28-lock: no pair for this Present (first frame after a reset), but the
-+ // cadence is kept: the real frame is presented with realInterval (both
-+ // slots) instead of the game's own interval, so it is not shown early.
-+ bool hold{};
- };
- // Captured real frames alternate between two slots. The pipelined order
- // shows, at each Present, the pair computed at the previous Present (its
-@@ -95,7 +99,8 @@
-  // No fixed-rate limiter. Game/driver VSync and engine limits still apply to
-  // this original submission. Accepted Presents are not proof of distinct
-  // displayed frames: compositor drops and uneven cadence remain possible.
-- auto hr=static_cast<std::int32_t>(paced?present(plan.realInterval,flags&paced_flags_mask):present(sync,flags));finish(hr==0);return hr;
-+ const bool hold=plan.hold&&!plan.generated;
-+ auto hr=static_cast<std::int32_t>(paced||hold?present(plan.realInterval,flags&paced_flags_mask):present(sync,flags));finish(hr==0);return hr;
- }
- template<class Present,class Restore,class Finish,class Generated,class Busy>
- std::int32_t present_pair(bool generated,bool paced,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
---- a/source/rtx20/performance.hpp
-+++ b/source/rtx20/performance.hpp
-@@ -48,6 +48,9 @@
- inline std::atomic<const char*> flow_mode{"medium"};
- // Fix17 cost guard: native rate (x10) and generation pauses it caused.
- inline std::atomic_uint native_fps_x10{},guard_pauses{};
-+// fix28-lock: Pacing=locked pairs, real frames shown in both slots for want
-+// of a pair (after a reset), and real frames that missed their refreshes.
-+inline std::atomic_ullong locked_pairs{},locked_held_frames{},locked_late_frames{};
- inline void gpu_json(char* buffer,std::size_t size){
-  if(!size)return;buffer[0]=0;std::size_t used=0;
-  for(unsigned i=0;i<gpu_samples.size();++i){
-@@ -59,12 +62,13 @@
-  const unsigned reference=reference_us.load(std::memory_order_relaxed);
-  const int n=std::snprintf(buffer+used,size-used,"\"flow_pairs_full\":%llu,\"flow_pairs_half\":%llu,\"flow_pairs_high_quality\":%llu},\"pacing_setting\":\"%s\",\"presentation\":\"%s\","
-   "\"spacing_us\":%u,\"reference_fps\":%.1f,\"timed_pairs\":%llu,\"pipelined_pairs\":%llu,\"paced_pairs\":%llu,\"spacing_wait_us\":%llu,\"generation_paused_frames\":%llu,"
--  "\"gpu_budget_percent\":%.1f,\"flow_mode\":\"%s\",\"pair_gpu_us\":{\"slow\":%u,\"medium\":%u,\"half\":%u},\"native_fps\":%.1f,\"guard_pauses\":%u",
-+  "\"gpu_budget_percent\":%.1f,\"flow_mode\":\"%s\",\"pair_gpu_us\":{\"slow\":%u,\"medium\":%u,\"half\":%u},\"native_fps\":%.1f,\"guard_pauses\":%u,\"locked_pairs\":%llu,\"locked_held_frames\":%llu,\"locked_late_frames\":%llu",
-   full_flow_pairs.load(std::memory_order_relaxed),half_flow_pairs.load(std::memory_order_relaxed),quality_flow_pairs.load(std::memory_order_relaxed),pacing_setting.load(),presentation_state.load(),
-   spacing_us.load(std::memory_order_relaxed),reference?1e6/reference:0.0,timed_pairs.load(std::memory_order_relaxed),pipelined_pairs.load(std::memory_order_relaxed),
-   paced_pairs.load(std::memory_order_relaxed),spacing_wait_us.load(std::memory_order_relaxed),paused_frames.load(std::memory_order_relaxed),
-   gpu_budget_permille.load(std::memory_order_relaxed)/10.0,flow_mode.load(),pair_gpu_us_slow.load(std::memory_order_relaxed),pair_gpu_us_medium.load(std::memory_order_relaxed),pair_gpu_us_half.load(std::memory_order_relaxed),
--  native_fps_x10.load(std::memory_order_relaxed)/10.0,guard_pauses.load(std::memory_order_relaxed));
-+  native_fps_x10.load(std::memory_order_relaxed)/10.0,guard_pauses.load(std::memory_order_relaxed),
-+  locked_pairs.load(std::memory_order_relaxed),locked_held_frames.load(std::memory_order_relaxed),locked_late_frames.load(std::memory_order_relaxed));
-  if(n<0||static_cast<std::size_t>(n)>=size-used)buffer[0]=0;
- }
- // Cumulative CPU wall time, including waits. These are not GPU durations or
---- a/source/rtx20/interpolator.cpp
-+++ b/source/rtx20/interpolator.cpp
-@@ -325,6 +325,9 @@
-  // D3D11 event marking when the GPU reached the generated Present.
-  PairPlan plan{};FrameRing ring;FrameRing::Step step{};
-  bool pipelineAvailable{},pipelined{};
-+ // fix28-lock: refreshes per real frame in Pacing=locked (2 or 4) and
-+ // whether the swapchain is a Vulkan bridge (external presentation).
-+ unsigned lockedDivisor{2};bool external{};
-  ComPtr<ID3D11Query> shown;
-  double lastSpacingLog{};unsigned loggedSpacingUs{};
-  double frameInterval{};std::chrono::steady_clock::time_point lastAcceptedTime{};
-@@ -366,6 +369,7 @@
-  }
-  void initialize(IDXGISwapChain* swap,ID3D12CommandQueue* queue,ExternalPresentation* external){
-   ComPtr<ID3D11Texture2D> back;
-+  this->external=external!=nullptr;
-   if(external){
-    auto transfer=external->create_transfer();if(!transfer)throw std::runtime_error("Vulkan bridge initialization");
-    back=transfer->snapshot();device=transfer->device();dx12=std::move(transfer);
-@@ -451,6 +455,19 @@
-   flowSetting=read_flow_setting();
-   qualitySetting=read_quality_setting();
-   budget.fraction=read_gpu_budget();
-+  // fix28-lock: Pacing=locked keeps one flow mode for the whole session.
-+  // Automatic switching (SLOW/MEDIUM by frame rate, half resolution by the
-+  // GPU budget, re-measured every 30-300 s) changes the cost per pair, and
-+  // each switch or re-measurement was a hitch. Explicit settings still win.
-+  presentation.pacing=parse_pacing(read_setting(L"SM86_PACING",L"Pacing",L"locked").c_str());
-+  lockedDivisor=external?2u:parse_locked_divisor(read_setting(L"SM86_LOCKED_BASE_RATE",L"LockedBaseRate",L"half").c_str());
-+  if(presentation.pacing==Pacing::locked){
-+   if(flowSetting==FlowResolution::automatic)flowSetting=FlowResolution::full;
-+   if(qualitySetting==FlowQuality::automatic)qualitySetting=FlowQuality::medium;
-+   budget.fraction=0;
-+   logf("[rtx20] Pacing=locked: flow fixed at resolution=%s quality=%s for the session (no automatic switching); GPU budget not used.\n",
-+        flow_setting_name(flowSetting),flow_quality_name(qualitySetting));
-+  }
-   performance::gpu_budget_permille=static_cast<unsigned>(budget.fraction*1000+0.5);
-   if(budget.fraction>0)logf("[rtx20] GPU budget: frame generation may use %.0f%% of each real frame's time; SLOW, MEDIUM or half-resolution flow is chosen by measured cost (GpuBudget=0 disables the limit).\n",budget.fraction*100);
-   else logf("[rtx20] GPU budget: unlimited (GpuBudget=0).\n");
-@@ -464,10 +481,13 @@
-   logf("[rtx20] flow_quality setting=%s; high-quality (SLOW preset) flow %s.\n",flow_quality_name(qualitySetting),
-        !qualityFlow?"unavailable or disabled":qualitySetting==FlowQuality::high?"ready, always used at full resolution":"ready, automatic below 55 real FPS at full resolution while its cost fits the GPU budget");
-   presentation.generateAboveRefresh=setting_on(read_setting(L"SM86_GENERATE_ABOVE_REFRESH",L"GenerateAboveRefresh",L"0"));
--  presentation.pacing=parse_pacing(read_setting(L"SM86_PACING",L"Pacing",L"auto").c_str());
-   presentation.refreshHz=refreshHz;
-   presentation.minimumBase=parse_minimum_base(read_setting(L"SM86_MINIMUM_BASE_RATE",L"MinimumBaseRate",L"auto").c_str());
-   performance::pacing_setting=pacing_name(presentation.pacing);
-+  if(presentation.pacing==Pacing::locked)
-+   logf("[rtx20] presentation: display %.0f Hz; Pacing=locked: always 2x, generated and real frame %u refresh(es) each, game held at %.1f real FPS (%s), %.1f displayed; never paused, no cost guard.\n",
-+        refreshHz,lockedDivisor/2,refreshHz>1?refreshHz/lockedDivisor:0.0,lockedDivisor==4?"LockedBaseRate=quarter":"LockedBaseRate=half",refreshHz>1?2*refreshHz/lockedDivisor:0.0);
-+  else
-   logf("[rtx20] presentation: display %.0f Hz; pause when the real rate reaches it %s; Pacing=%s (auto/low_latency/smooth show each generated frame for half a real-frame interval).\n",refreshHz,
-        presentation.generateAboveRefresh?"disabled (GenerateAboveRefresh=1)":"enabled",pacing_name(presentation.pacing));
-   if(nativeFlow&&flowSetting!=FlowResolution::full){
-@@ -528,7 +548,15 @@
-     require(device->CreateShaderResourceView(t.texture.Get(),&vd,&t.srv),"CreateSRV(resolve)");
-    }
-    pipelineAvailable=true;
--  }else{for(auto& t:saved)texture(t,width,height,plain,false);pipelineAvailable=true;}
-+  }else{
-+   for(auto& t:saved)texture(t,width,height,plain,false);
-+   // fix28-lock: the Vulkan bridge always presents the game's own current
-+   // image after the generated one; it cannot restore the previous real
-+   // frame. The pipelined order would show frame N, the pair (N-2, N-1),
-+   // then N+1: a step backwards on every frame (Pacing=smooth, or auto
-+   // after it learned the pipelined order, on MAILBOX/IMMEDIATE chains).
-+   pipelineAvailable=!external;
-+  }
-   D3D11_QUERY_DESC shownDesc{D3D11_QUERY_EVENT,0};if(FAILED(device->CreateQuery(&shownDesc,&shown)))shown.Reset();
-   // Grid of the two distinct motions crossing each 4x4 cell at the midpoint.
-   texture(projected,grid_extent(width),grid_extent(height),DXGI_FORMAT_R32G32B32A32_FLOAT,true);
-@@ -582,7 +610,7 @@
-   }
-   logf("[rtx20] flow_resolution setting=%s; half-resolution flow %s%s.\n",flow_setting_name(flowSetting),halfFlow?"ready ":"unavailable",
-        halfFlow?(std::to_string(halfWidth)+"x"+std::to_string(halfHeight)+" (8-pixel cells), automatic above "+std::to_string(int(half_flow_enter_fps))+" real FPS").c_str():"");
--  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v12 (flow refined against the frames where NVOF drags thin objects or smears motion across outlines, NVOF temporal hints, coherence pass against fragments, textured-match foreground priority, dominant-motion silhouettes and disocclusion fill, soft-content dissolve where no motion validates, static glyph and zero-motion protection, static overlay mask for crosshairs/HUD, flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
-+  logf("[rtx20] %s backend ready: adapter=%ls SM%d%d %ux%u; NVOF %s MEDIUM/SLOW presets, bidirectional flow, 2x SDR synthesis; artifact_guard=occlusion_aware_v14 (flow refined against the frames where NVOF drags thin objects or smears motion across outlines, NVOF temporal hints, coherence pass against fragments, textured-match foreground priority, dominant-motion silhouettes and disocclusion fill, soft-content dissolve where no motion validates, static glyph and zero-motion protection, static overlay mask for crosshairs/HUD, flat-region fill and fast path, two-frame HUD contrast, exposure gain matching, validated occlusion fill, thin-object and crossing-line motion, sharp resampling, motion-guided midpoint projection up to 256 px, HUD overlay and stationary-detail protection). Display output remains unverified.\n",major==8?"Ampere":"Turing",ad.Description,major,minor,width,height,nativeFlow?"D3D11 API5":"CUDA API2");
-  }
-  bool quiesce(){
-   if(cudaFault)return false;
-@@ -652,7 +680,8 @@
-         state==Presentation::paused?"; generated frames would not be visible (GenerateAboveRefresh=1 overrides)":
-         state==Presentation::timed?"; generated frame, then the real frame half a real-frame interval later":
-         state==Presentation::pipelined?"; previous pair shown with even spacing while the next pair is computed (one real frame more latency)":
--        state==Presentation::vblank?"; generated and real frame on consecutive refreshes":"");
-+        state==Presentation::vblank?"; generated and real frame on consecutive refreshes":
-+        state==Presentation::locked?"; locked 2x: generated and real frame on refreshes of their own, every frame":"");
-    if(presentation.spaced())logf("[rtx20] spacing: reference %.1f real FPS, wait %.1f ms (ideal %.1f ms).\n",reference,wait/1000.0,ideal);
-    if(state==Presentation::measuring&&before==Presentation::native)logf("[rtx20] native rate: %.1f FPS without generation.\n",presentation.nativeFps);
-    if(state==Presentation::paused&&presentation.counterproductive)
-@@ -734,7 +763,7 @@
-   stamp(timer,1);
-   const double wait=vsync?0:presentation.wait_seconds();
-   plan.paced=presentation.paced()||(presentation.spaced()&&vsync);
--  if(plan.paced){const auto intervals=paired_intervals(sync);plan.generatedInterval=intervals.generated;plan.realInterval=intervals.real;}
-+  if(plan.paced){const auto intervals=paired_intervals(sync,presentation.locked()?lockedDivisor:1);plan.generatedInterval=intervals.generated;plan.realInterval=intervals.real;}
-   if(pipelined){
-    // Present the pair computed at the previous Present (its generated frame,
-    // then that real frame); the next pair is computed during the wait.
-@@ -744,11 +773,18 @@
-    if(plan.generated)++performance::pipelined_pairs;
-    return plan.generated;
-   }
--  if(!interpolating)return false;
-+  if(!interpolating){
-+   // fix28-lock: no pair yet (first frame after a reset or a gap). The real
-+   // frame takes both slots so the cadence is unchanged; only its content
-+   // repeats once.
-+   if(presentation.locked()){plan.hold=true;plan.realInterval=plan.generatedInterval+plan.realInterval;++performance::locked_held_frames;}
-+   return false;
-+  }
-   compute_pair(timer,false);
-   plan.generated=true;plan.spacing=presentation.spaced()?wait:0;
-   if(plan.spacing>0)++performance::timed_pairs;
-   if(plan.paced)++performance::paced_pairs;
-+  if(presentation.locked())++performance::locked_pairs;
-   return true;
-  }
-  // Optical flow and synthesis of the pair (frames[0], frames[1]).
-@@ -960,7 +996,15 @@
-  impl_->history=true;impl_->captured=false;impl_->lastAccepted=GetTickCount64();
-  const auto now=std::chrono::steady_clock::now();
-  if(impl_->lastAcceptedTime.time_since_epoch().count())
--  impl_->frameInterval=update_frame_interval(impl_->frameInterval,std::chrono::duration<double>(now-impl_->lastAcceptedTime).count());
-+  {
-+  const double seconds=std::chrono::duration<double>(now-impl_->lastAcceptedTime).count();
-+  impl_->frameInterval=update_frame_interval(impl_->frameInterval,seconds);
-+  // fix28-lock: a real frame that took more refreshes than its slots missed
-+  // the cadence (the display repeated a frame). Counted for the log.
-+  const auto& plan=impl_->plan;
-+  const unsigned slots=plan.hold?plan.realInterval:plan.generatedInterval+plan.realInterval;
-+  if(impl_->presentation.locked()&&locked_frame_late(seconds,impl_->refreshHz,slots))++performance::locked_late_frames;
-+  }
-  impl_->lastAcceptedTime=now;
- }
- void Interpolator::break_pipeline(){if(impl_){impl_->ring.reset();}}
---- a/source/rtx20/dxgi_hooks.cpp
-+++ b/source/rtx20/dxgi_hooks.cpp
-@@ -871,7 +871,7 @@
- }
- extern "C" __declspec(dllexport) unsigned WINAPI SmoothMotionGetStatus(char* out,unsigned size){
-  char timingStatus[2048]{};sm20::performance::json(timingStatus,sizeof timingStatus);
-- char gpuStatus[1024]{};sm20::performance::gpu_json(gpuStatus,sizeof gpuStatus);
-+ char gpuStatus[2048]{};sm20::performance::gpu_json(gpuStatus,sizeof gpuStatus);
-  char skipStatus[1024]{};size_t used=0;
-  for(size_t i=0;i<skips.size();++i){
-   const int written=std::snprintf(skipStatus+used,sizeof(skipStatus)-used,"%s\"%s\":%llu",i?",":"",skipNames[i],skips[i].load());
---- a/source/rtx20/vulkan_layer.cpp
-+++ b/source/rtx20/vulkan_layer.cpp
-@@ -23,6 +23,7 @@
- #include "interpolator.hpp"
- #include "pacing_clock.hpp"
- #include "performance.hpp"
-+#include "policy.hpp"
- #include <d3d11_4.h>
- #include <dxgi1_6.h>
- #include <string>
-@@ -48,6 +49,18 @@
-  wchar_t value[16]{};GetPrivateProfileStringW(L"RTX20",L"Vulkan",L"1",value,16,ini.c_str());
-  return value[0]!=L'0'&&_wcsicmp(value,L"off")!=0&&_wcsicmp(value,L"false")!=0;
- }
-+// fix28-lock: Pacing from SM86_PACING or [RTX20] Pacing (default locked).
-+bool locked_pacing(){
-+ auto e=environment(L"SM86_PACING");
-+ if(e.empty()){
-+  std::wstring exe(32768,L'\0');const DWORD n=GetModuleFileNameW(nullptr,exe.data(),DWORD(exe.size()));
-+  if(n&&n<exe.size()){
-+   exe.resize(n);const auto slash=exe.find_last_of(L"\\/");const auto ini=(slash==std::wstring::npos?std::wstring():exe.substr(0,slash+1))+L"nvsmooth30.ini";
-+   wchar_t value[32]{};GetPrivateProfileStringW(L"RTX20",L"Pacing",L"locked",value,32,ini.c_str());e=value;
-+  }
-+ }
-+ return sm20::parse_pacing(e.c_str())==sm20::Pacing::locked;
-+}
- std::string utf8(const std::wstring& w){
-  if(w.empty())return {};const int n=WideCharToMultiByte(CP_UTF8,0,w.data(),int(w.size()),nullptr,0,nullptr,nullptr);
-  std::string out(std::size_t(n),'\0');WideCharToMultiByte(CP_UTF8,0,w.data(),int(w.size()),out.data(),n,nullptr,nullptr);return out;
-@@ -317,6 +330,7 @@
-  if(!owner.empty()&&owner!=pid&&!module_in_executable_folder()){layerOnly=true;g_status="layer only (inherited by another program)";return;}
-  smvk::interop_extensions={VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME};
-  smvk::generator_factory=&make_bridge;
-+ smvk::lock_fifo=locked_pacing();
-  register_layer();
- }} setup;
- }
---- a/source/rtx20/vulkan_layer_core.hpp
-+++ b/source/rtx20/vulkan_layer_core.hpp
-@@ -121,6 +121,13 @@
- inline GeneratorFactory generator_factory=nullptr;
- // Device requirements of the generator, checked at vkCreateDevice.
- inline std::vector<const char*> interop_extensions;
-+// fix28-lock (Pacing=locked): generating swapchains are created with FIFO
-+// (always supported), so the generated and the real image each take one
-+// refresh. MAILBOX would replace the generated image before it is shown and
-+// IMMEDIATE would show it for a fraction of a refresh. The generated frame's
-+// image acquire also stays blocking (bounded by its timeout): falling back to
-+// a nonblocking acquire dropped generated frames for the rest of the session.
-+inline bool lock_fifo=false;
- 
- struct Slot {
-  VkCommandBuffer captureCommands{},generatedCommands{};
-@@ -265,7 +272,7 @@
-   std::uint32_t index=0;
-   const auto acquired=d.AcquireNextImageKHR(d.device,c.swapchain,c.blockingAcquire?generated_acquire_timeout_ns:0,s.acquired,VK_NULL_HANDLE,&index);
-   if(acquired==VK_NOT_READY||acquired==VK_TIMEOUT){
--   if(c.blockingAcquire&&++c.acquireTimeouts>=3){
-+   if(c.blockingAcquire&&!lock_fifo&&++c.acquireTimeouts>=3){
-     c.blockingAcquire=false;log("[vulkan] No free swapchain image within 25 ms three times in a row: generated frames now use a nonblocking acquire (skipped when no image is free).\n");
-    }
-    return VK_NOT_READY;
---- a/source/rtx20/vulkan_layer_entry.hpp
-+++ b/source/rtx20/vulkan_layer_entry.hpp
-@@ -139,6 +139,10 @@
-    // game does not hold.
-    if(!caps.maxImageCount||modified.minImageCount<caps.maxImageCount)++modified.minImageCount;
-    modified.minImageCount=std::max(modified.minImageCount,caps.minImageCount);
-+   if(lock_fifo&&modified.presentMode!=VK_PRESENT_MODE_FIFO_KHR){
-+    logf("[vulkan] Pacing=locked: present mode %d replaced by FIFO for even 2x presentation.\n",int(modified.presentMode));
-+    modified.presentMode=VK_PRESENT_MODE_FIFO_KHR;
-+   }
-   }else eligible=false;
-  }else eligible=false;
-  // The old swapchain's generator ends before the new chain is created.
-@@ -152,10 +156,10 @@
-  if(eligible){
-   auto c=std::make_unique<Chain>();c->device=d;c->swapchain=*out;c->format=info->imageFormat;c->extent=info->imageExtent;
-   std::uint32_t n=0;d->GetSwapchainImagesKHR(device,*out,&n,nullptr);c->images.resize(n);d->GetSwapchainImagesKHR(device,*out,&n,c->images.data());
--  c->setup.device=d;c->setup.swapchain=*out;c->setup.format=info->imageFormat;c->setup.extent=info->imageExtent;c->setup.presentMode=info->presentMode;
--  c->blockingAcquire=info->presentMode==VK_PRESENT_MODE_FIFO_KHR||info->presentMode==VK_PRESENT_MODE_FIFO_RELAXED_KHR;
-+  c->setup.device=d;c->setup.swapchain=*out;c->setup.format=info->imageFormat;c->setup.extent=info->imageExtent;c->setup.presentMode=modified.presentMode;
-+  c->blockingAcquire=modified.presentMode==VK_PRESENT_MODE_FIFO_KHR||modified.presentMode==VK_PRESENT_MODE_FIFO_RELAXED_KHR;
-   {std::scoped_lock l(d->instance->surfaceLock);auto w=d->instance->surfaceWindows.find(info->surface);if(w!=d->instance->surfaceWindows.end())c->setup.window=w->second;}
--  logf("[vulkan] Swapchain %ux%u format=%d images=%u present_mode=%d registered for generation.\n",info->imageExtent.width,info->imageExtent.height,int(info->imageFormat),n,int(info->presentMode));
-+  logf("[vulkan] Swapchain %ux%u format=%d images=%u present_mode=%d registered for generation.\n",info->imageExtent.width,info->imageExtent.height,int(info->imageFormat),n,int(modified.presentMode));
-   auto& s=state();std::scoped_lock l(s.lock);s.chains[*out]=std::move(c);
-  }else logf("[vulkan] Swapchain %ux%u format=%d passed through (unsupported format or usage, or no interop).\n",info->imageExtent.width,info->imageExtent.height,int(info->imageFormat));
-  return VK_SUCCESS;
 --- a/source/rtx20/policy_test.cpp
 +++ b/source/rtx20/policy_test.cpp
-@@ -47,6 +47,46 @@
+@@ -1,3 +1,4 @@
++#include <cstdint>
+ #include <cmath>
+ #include "policy.hpp"
+ #include "present_sequence.hpp"
+@@ -47,6 +48,69 @@
    present_scheduled(plan,4,0,[&](unsigned s,unsigned){syncs.push_back(s);return 0;},[](bool){return -1.0;},[](double){return true;},
     []{return RestoreResult::restored;},[](bool){},[]{},[]{});
    assert((syncs==std::vector<unsigned>{2,2}));
@@ -432,12 +703,35 @@
 +  locked.restart();assert(locked.state==Presentation::native&&locked.update(t,0)==Presentation::locked);
 +  locked.reset();assert(locked.update(t+1,0)==Presentation::locked);
 +  assert(locked.pauses==0&&!locked.counterproductive);
++  // On-screen pacing monitor (DXGI frame statistics after each real frame).
++  {
++   PacingMonitor m;PacingMonitor::Window w;std::uint32_t sub=100,shown=90,ref=5000;double now=0;bool done=false;
++   // Perfect half: two Presents per real frame, each shown one refresh. The
++   // statistics lag and alias (0 then 4 shown) without false repeats.
++   for(unsigned i=0;i<760;++i){
++    sub+=2;const std::uint32_t step=(i%3==1)?0:((i%3==2)?4:2);shown+=step;ref+=step;now+=1/72.0;
++    done=m.sample(now,sub,shown,ref,1,w)||done;
++   }
++   assert(done&&w.repeats==0&&w.stutters==0&&w.shown==w.refreshes&&w.submitted>=1400);
++   // One frame stayed a refresh longer: one repeat, one stutter frame.
++   PacingMonitor r;r.sample(0,0,0,0,1,w);r.sample(0.1,2,2,2,1,w);r.sample(0.2,4,4,5,1,w);
++   r.sample(10.5,6,6,7,1,w);assert(w.frames==3&&w.repeats==1&&w.stutters==1&&w.shown==6&&w.refreshes==7);
++   // Quarter: each image two refreshes is even.
++   PacingMonitor q;q.sample(0,0,0,0,2,w);q.sample(0.1,2,2,4,2,w);q.sample(10.2,4,4,8,2,w);assert(w.repeats==0&&w.refreshes==8);
++   // A counter restart is ignored; rebase starts from the next sample.
++   PacingMonitor z;z.sample(0,10,10,10,1,w);z.sample(0.1,12,12,12,1,w);z.sample(0.2,3,1000,99999,1,w);z.rebase();z.sample(0.3,5,5,5,1,w);
++   z.sample(10.4,7,7,7,1,w);assert(w.frames==2&&w.repeats==0);
++   // Windows: six of ten seconds, then one per minute.
++   PacingMonitor c;unsigned windows=0;double t=0;std::uint32_t k=0;
++   for(unsigned i=0;i<200000&&t<185;++i){t+=0.01;k+=2;if(c.sample(t,k,k,k,1,w))++windows;}
++   assert(windows==6+2&&c.period()==60);
++  }
 +  // Vblank (Fix13) for comparison still measures first.
 +  PresentationPolicy vb;vb.pacing=Pacing::vblank;vb.refreshHz=144;assert(vb.update(0,0)==Presentation::native&&!vb.generating());
   }
   {
    // GPU budget (Fix15): parse, then choose the best flow mode that fits.
-@@ -247,7 +287,11 @@
+@@ -247,7 +311,11 @@
    assert(generation_useful(true,93,92)&&!generation_useful(true,94,92));
    assert(generation_useful(true,200,0)&&generation_useful(false,0,92));    // unknown rates
    // Pacing setting names (Fix13 "on" keeps the default).
@@ -450,25 +744,39 @@
    assert(parse_pacing(L"OFF")==Pacing::off&&parse_pacing(L"0")==Pacing::off);
    assert(parse_pacing(L"Low_Latency")==Pacing::low_latency&&parse_pacing(L"smooth")==Pacing::smooth&&parse_pacing(L"vblank")==Pacing::vblank);
    // Game-loop model: after Present returns the game works `work` seconds,
---- a/source/rtx20/vulkan_layer_test.cpp
-+++ b/source/rtx20/vulkan_layer_test.cpp
-@@ -28,6 +28,7 @@
-  }
- public:
-  explicit CopyGenerator(const smvk::ChainSetup& s):d(*s.device){
-+  std::fprintf(stderr,"[test] generator present_mode=%d\n",int(s.presentMode));
-   capture_=image(s.format,s.extent,memory_[0]);output_=image(s.format,s.extent,memory_[1]);
-   VkSemaphoreTypeCreateInfo ti{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};ti.semaphoreType=VK_SEMAPHORE_TYPE_TIMELINE;
-   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};si.pNext=&ti;d.CreateSemaphore(d.device,&si,nullptr,&timeline_);
-@@ -89,6 +90,8 @@
- struct Init{Init(){
-  smvk::log_sink=[](const char* t){std::fputs(t,stderr);};
-  smvk::generator_factory=&make;smvk::interop_extensions={};
-+ // fix28-lock: Pacing=locked forces FIFO on generating swapchains.
-+ if(std::getenv("SMVK_LOCK_FIFO"))smvk::lock_fifo=true;
- }} init;
+--- a/source/rtx20/present_sequence.hpp
++++ b/source/rtx20/present_sequence.hpp
+@@ -45,6 +45,10 @@
+  bool restore{};     // write a real frame even without a generated Present
+  bool compute{};     // run `between` even without a generated Present
+  double spacing{};   // seconds from generated visibility to the real Present
++ // fix28-lock: no pair for this Present (first frame after a reset), but the
++ // cadence is kept: the real frame is presented with realInterval (both
++ // slots) instead of the game's own interval, so it is not shown early.
++ bool hold{};
+ };
+ // Captured real frames alternate between two slots. The pipelined order
+ // shows, at each Present, the pair computed at the previous Present (its
+@@ -95,7 +99,8 @@
+  // No fixed-rate limiter. Game/driver VSync and engine limits still apply to
+  // this original submission. Accepted Presents are not proof of distinct
+  // displayed frames: compositor drops and uneven cadence remain possible.
+- auto hr=static_cast<std::int32_t>(paced?present(plan.realInterval,flags&paced_flags_mask):present(sync,flags));finish(hr==0);return hr;
++ const bool hold=plan.hold&&!plan.generated;
++ auto hr=static_cast<std::int32_t>(paced||hold?present(plan.realInterval,flags&paced_flags_mask):present(sync,flags));finish(hr==0);return hr;
  }
- extern "C" __attribute__((visibility("default"))) unsigned smvk_test_counts(unsigned which){
+ template<class Present,class Restore,class Finish,class Generated,class Busy>
+ std::int32_t present_pair(bool generated,bool paced,unsigned sync,unsigned flags,Present present,Restore restore,Finish finish,Generated generated_accepted,Busy generated_busy){
+--- a/source/rtx20/smoke_test.cpp
++++ b/source/rtx20/smoke_test.cpp
+@@ -45,6 +45,6 @@
+  }
+  char json[8192]{};status(json,sizeof json);std::puts(json);
+  FILE* out=nullptr;_wfopen_s(&out,(dir+(legacy?L"rtx20-legacy-test-report.txt":L"rtx20-test-report.txt")).c_str(),L"wb");if(out){std::fprintf(out,"RTX20 %s - first 10 seconds %s, next 10 seconds interval 0; %u application frames\n%s\n\nAccepted Present calls are not proof that the display showed each frame. Compare F11 on/off and inspect the moving bars.\n",legacy?"legacy DX11 test (DISCARD, 4x MSAA)":"test",legacy?"interval 2":"VSync",frames,json);std::fclose(out);}
+- MessageBoxW(window,L"Test finished. The status is saved in rtx20-test-report.txt and nvsmooth30.log in this Test folder.\n\nNonzero flow_pairs and generated_present_accepted show that processing and presentation submission ran. Visual quality still needs checking.",L"RTX20 hardware test",MB_OK);
++ if(!GetEnvironmentVariableW(L"SM86_TEST_NO_PROMPT",nullptr,0))MessageBoxW(window,L"Test finished. The status is saved in rtx20-test-report.txt and nvsmooth30.log in this Test folder.\n\nNonzero flow_pairs and generated_present_accepted show that processing and presentation submission ran. Visual quality still needs checking.",L"RTX20 hardware test",MB_OK);
+  DestroyWindow(window);return FAILED(hr)?5:0;
+ }
 --- a/source/rtx20/test_vulkan.py
 +++ b/source/rtx20/test_vulkan.py
 @@ -31,15 +31,23 @@
@@ -498,25 +806,109 @@
    print(('PASS' if ok else 'FAIL'),'Vulkan layer (host):',label,m.group(0))
    assert ok,(label,r.stdout[-3000:],r.stderr[-3000:])
   report['host']={'result':'PASS','driver':'Mesa lavapipe','validation_layer':True,'cases':results}
---- a/source/rtx20/build.py
-+++ b/source/rtx20/build.py
-@@ -11,14 +11,14 @@
- (src/'shader_source.hpp').write_text('#pragma once\ninline constexpr char shader_source[]=R"SM20HLSL(\n'+(src/'shaders.hlsl').read_text()+')SM20HLSL";\n')
- files=[src/n for n in ['dxgi_hooks.cpp','interpolator.cpp','dx12_transfer.cpp','nvof_d3d11.cpp','async_flow.cpp','nvpresent_stub.cpp','vulkan_layer.cpp']]
- files += [native/'src'/n for n in ['dllmain.cpp','config.cpp','log.cpp','pe.cpp']]
--base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.5-rtx20-rtx30-dx12-preview2-fix28-test"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow'),'-I'+str(root/'third_party/vulkan-headers/include')]
-+base=['-std=c++20','-O2','-static','-shared','-DUNICODE','-D_UNICODE','-DWIN32_LEAN_AND_MEAN','-DNOMINMAX','-DNVS30_VERSION="2.8.5-rtx20-rtx30-dx12-preview2-fix28-qua2-lock"','-I'+str(src/'include'),'-I'+str(native/'include'),'-I'+str(root/'third_party/nvidia-optical-flow'),'-I'+str(root/'third_party/vulkan-headers/include')]
- libs=['-ld3d11','-ld3d12','-ldxgi','-ldxguid','-luser32','-lgdi32','-lshlwapi','-lbcrypt','-lsetupapi','-ladvapi32']
- artifacts={}
- for name,extra in [('normal.asi',[]),('version.dll',[native/'src/version_proxy.cpp',native/'src/version_proxy.def'])]:
-  dest=out/name
-  subprocess.run([*build_toolchain.command(a,dest),*base,*(['-DNVS30_STANDALONE=1'] if name=='version.dll' else []),*map(str,files),*map(str,extra),*libs,'-o',str(dest)],check=True)
-  artifacts[name]={'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'bytes':dest.stat().st_size}
--report={'version':'2.8.5-rtx20-rtx30-dx12-preview2-fix28-test','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 + Vulkan SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow',root/'third_party/vulkan-headers'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
-+report={'version':'2.8.5-rtx20-rtx30-dx12-preview2-fix28-qua2-lock','compiler':build_toolchain.identity(a),'backend':'Turing/Ampere NVOF + custom synthesis','render_api':'D3D11 + D3D12 + Vulkan SDR','GPU_tested':False,'Windows_executed':False,'artifacts':artifacts,'source_sha256':{str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for folder in [src,native,root/'third_party/nvidia-optical-flow',root/'third_party/vulkan-headers'] for f in sorted(folder.rglob('*')) if f.is_file() and f.suffix in ['.cpp','.hpp','.h','.hlsl','.py','.def']}}
- report['source_sha256']['source/build_toolchain.py']=hashlib.sha256((root/'source/build_toolchain.py').read_bytes()).hexdigest()
- (src/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
- print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
+--- a/source/rtx20/transfer_smoke_test.cpp
++++ b/source/rtx20/transfer_smoke_test.cpp
+@@ -56,6 +56,9 @@
+  HANDLE event{};
+  bool inFlight{};
+  unsigned cases{},checks{};
++ // fix28-lock: transfer mode of the next cases (staging, shared sync, shared
++ // async) and how many cases actually ran asynchronously.
++ bool forceStaging{true},asyncAllowed{false};unsigned asyncCases{};
+  ~Harness(){delete transfer;if(event)CloseHandle(event);}
+  void initialize(HWND window){
+   ComPtr<ID3D12Debug> layer;
+@@ -126,13 +129,16 @@
+    check(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&b,kind==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&target)),"Create test buffer");
+   };
+   buffer(D3D12_HEAP_TYPE_UPLOAD,upload);buffer(D3D12_HEAP_TYPE_READBACK,readback);
+-  transfer=new sm20::DX12Transfer;check(transfer->initialize(swap.Get(),queue.Get()),"Initialize production transfer");
++  require(SetEnvironmentVariableW(L"SM20_DX12_FORCE_STAGING",forceStaging?L"1":L"0")!=FALSE,"Set staging test override");
++  transfer=new sm20::DX12Transfer;check(transfer->initialize(swap.Get(),queue.Get(),asyncAllowed),"Initialize production transfer");
++  if(transfer->asynchronous())++asyncCases;
+   transfer->device()->GetImmediateContext(&context11);
+   D3D11_TEXTURE2D_DESC t{};transfer->snapshot()->GetDesc(&t);
+   t.Usage=D3D11_USAGE_STAGING;t.BindFlags=0;t.CPUAccessFlags=D3D11_CPU_ACCESS_READ;t.MiscFlags=0;
+   check(transfer->device()->CreateTexture2D(&t,nullptr,&staging11),"Create test D3D11 readback");
+   D3D11_QUERY_DESC query{D3D11_QUERY_EVENT,0};check(transfer->device()->CreateQuery(&query,&completion11),"Create test D3D11 query");
+-  say("Case %u: %ux%u %s, DX12 row pitch=%u (active bytes=%u)\n",cases+1,width,height,format==DXGI_FORMAT_R8G8B8A8_UNORM?"RGBA":"BGRA",footprint.Footprint.RowPitch,width*4);
++  say("Case %u: %ux%u %s, DX12 row pitch=%u (active bytes=%u), transfer %s\n",cases+1,width,height,format==DXGI_FORMAT_R8G8B8A8_UNORM?"RGBA":"BGRA",footprint.Footprint.RowPitch,width*4,
++      forceStaging?"staging":transfer->asynchronous()?"shared async":"shared sync");
+  }
+  // An independent upload/readback pair gives the test an oracle without using
+  // DX12Transfer to construct its own expected result.
+@@ -202,27 +208,65 @@
+   check(transfer->write_original(swap.Get()),"Production write_original after Present");verify_back(original,"Saved original -> next DX12 buffer");
+   verify_snapshot(original);collect_debug();++cases;
+  }
++ // fix28-lock: 48 pairs (144 copies, the 16-entry ring wraps 9 times) with
++ // no test wait between them, the generated frame changing each time, then
++ // one verified pair. The debug layer reports allocator or state misuse.
++ void run_burst(UINT w,UINT h,DXGI_FORMAT f){
++  setup_case(w,h,f);const auto original=pattern(false),generated=pattern(true);
++  D3D11_TEXTURE2D_DESC t{};transfer->snapshot()->GetDesc(&t);t.Usage=D3D11_USAGE_DEFAULT;t.CPUAccessFlags=0;t.MiscFlags=0;
++  D3D11_SUBRESOURCE_DATA data{};data.pSysMem=generated.data();data.SysMemPitch=width*4;
++  check(transfer->device()->CreateTexture2D(&t,&data,&generated11),"Create generated test texture");
++  std::vector<unsigned char> varying(generated);
++  for(unsigned i=0;i<48;++i){
++   for(std::size_t p=0;p<varying.size();p+=4)varying[p]=static_cast<unsigned char>(i*5+p);
++   context11->UpdateSubresource(generated11.Get(),0,nullptr,varying.data(),width*4,0);
++   check(transfer->capture(swap.Get()),"Burst capture");
++   check(transfer->write_generated(swap.Get(),generated11.Get()),"Burst write_generated");
++   check(swap->Present(0,0),"Burst Present generated");
++   check(transfer->write_original(swap.Get()),"Burst write_original");
++   check(swap->Present(0,0),"Burst Present original");
++  }
++  // Verified pair after the burst: the same oracle as run_case.
++  D3D12_RANGE none{0,0},written{0,static_cast<SIZE_T>(bytes)};void* memory{};
++  check(upload->Map(0,&none,&memory),"Map test upload");
++  for(UINT y=0;y<height;++y)std::memcpy(static_cast<unsigned char*>(memory)+footprint.Offset+std::size_t(y)*footprint.Footprint.RowPitch,original.data()+std::size_t(y)*width*4,width*4);
++  upload->Unmap(0,&written);copy_back(true);
++  context11->UpdateSubresource(generated11.Get(),0,nullptr,generated.data(),width*4,0);
++  check(transfer->capture(swap.Get()),"Production capture after burst");verify_snapshot(original);
++  check(transfer->write_generated(swap.Get(),generated11.Get()),"Production write_generated after burst");verify_back(generated,"Burst: D3D11 generated -> DX12 current buffer");
++  check(swap->Present(1,0),"Present generated frame after burst");wait();
++  check(transfer->write_original(swap.Get()),"Production write_original after burst");verify_back(original,"Burst: saved original -> next DX12 buffer");
++  collect_debug();++cases;
++ }
+ };
+ }
+ int main(){
+  wchar_t filename[32768]{};GetModuleFileNameW(nullptr,filename,32768);std::wstring directory(filename);directory.resize(directory.find_last_of(L"\\/")+1);
+  _wfopen_s(&report,(directory+L"rtx20-transfer-test-report.txt").c_str(),L"wb");
+- say("RTX20 production DX12 transfer pixel test\nNo CUDA/NVOF or ASI required. CPU staging forced in this process only.\n");
++ say("RTX20 production DX12 transfer pixel test (fix28-qua2-lock)\nNo CUDA/NVOF or ASI required.\n");
+  HRESULT result=S_OK;const char* operation="completed";HWND window{};auto* test=new Harness;
+  try{
+-  require(SetEnvironmentVariableW(L"SM20_DX12_FORCE_STAGING",L"1")!=FALSE,"Set staging test override");
+   WNDCLASSW wc{};wc.hInstance=GetModuleHandleW(nullptr);wc.lpfnWndProc=procedure;wc.lpszClassName=L"SM20_Transfer_Pixel_Test";
+   require(RegisterClassW(&wc)!=0,"RegisterClassW");
+   window=CreateWindowW(wc.lpszClassName,L"RTX20 transfer pixel regression",WS_OVERLAPPEDWINDOW|WS_VISIBLE,CW_USEDEFAULT,CW_USEDEFAULT,480,360,nullptr,nullptr,wc.hInstance,nullptr);
+   require(window!=nullptr,"CreateWindowW");UpdateWindow(window);test->initialize(window);
+-  for(const auto format:{DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_FORMAT_B8G8R8A8_UNORM}){
+-   test->run_case(130,129,format);test->run_case(257,131,format);
++  // Staging (Fix28's own test), then shared textures synchronous (Fix28's
++  // game path) and asynchronous (fix28-lock default), then the async burst.
++  for(const auto mode:{0,1,2}){
++   test->forceStaging=mode==0;test->asyncAllowed=mode==2;
++   say("\n== Transfer mode: %s ==\n",mode==0?"CPU staging":mode==1?"shared textures, synchronous (Dx12Transfer=sync)":"shared textures, asynchronous (default)");
++   for(const auto format:{DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_FORMAT_B8G8R8A8_UNORM}){
++    test->run_case(130,129,format);test->run_case(257,131,format);
++   }
+   }
++  test->forceStaging=false;test->asyncAllowed=true;
++  say("\n== Asynchronous burst: 48 pairs without waits, then a verified pair ==\n");
++  test->run_burst(257,131,DXGI_FORMAT_B8G8R8A8_UNORM);
+   test->release_case();test->collect_debug();
+  }catch(const Error& e){result=e.hr;operation=e.operation;say("FAIL: %s hr=0x%08lx\n",operation,(unsigned long)result);}
+  catch(...){result=E_FAIL;operation="unexpected exception";say("FAIL: unexpected exception\n");}
+- const bool passed=SUCCEEDED(result)&&test->cases==4&&test->checks==16;
+- say("\nPixel roundtrip: %s\nCompleted format/size cases: %u/4\nFull-image comparisons: %u/16\nD3D12 debug errors: %llu\nD3D12 debug validation: %s\nResult: 0x%08lx (%s)\nThis test validates staging transfer pixels and original restoration. It does not validate shared-texture interop, optical flow, displayed interpolation or frame pacing.\n",passed?"PASS":"FAIL",test->cases,test->checks,(unsigned long long)test->debugErrors,test->debug?"enabled":"unavailable; barrier validation was not performed",(unsigned long)result,operation);
++ const bool passed=SUCCEEDED(result)&&test->cases==13&&test->checks==51;
++ say("\nPixel roundtrip: %s\nCompleted cases: %u/13 (4 staging, 4 shared sync, 4 shared async, 1 async burst)\nFull-image comparisons: %u/51\nCases that ran asynchronously: %u (5 expected; fewer means this driver has no shared D3D12/D3D11 fence and games use the synchronous path)\nD3D12 debug errors: %llu\nD3D12 debug validation: %s\nResult: 0x%08lx (%s)\nThis test validates transfer pixels and original restoration for the three transfer modes. It does not validate optical flow, displayed interpolation or frame pacing.\n",passed?"PASS":"FAIL",test->cases,test->checks,test->asyncCases,(unsigned long long)test->debugErrors,test->debug?"enabled":"unavailable; barrier validation was not performed",(unsigned long)result,operation);
+  if(report){std::fclose(report);report=nullptr;}
+  // On any failure keep all potentially submitted resources until process exit.
+  if(passed){delete test;DestroyWindow(window);}
 --- a/source/rtx20/verify.py
 +++ b/source/rtx20/verify.py
 @@ -17,7 +17,7 @@
@@ -543,3 +935,136 @@
   assert b'GPU budget:' in pe.data and b'pair_gpu_us' in pe.data and b'ExclusiveFullscreen' in pe.data.replace(b'\x00',b'')
   assert b'10-bit SDR backbuffer (R10G10B10A2)' in pe.data
   assert b'guard: generation paused' in pe.data and b'GPU-bound: waiting for the GPU' in pe.data and 'MinimumBaseRate'.encode('utf-16-le') in pe.data and b'native rate: %.1f FPS' in pe.data and b'guard_pauses' in pe.data
+--- a/source/rtx20/vulkan_layer.cpp
++++ b/source/rtx20/vulkan_layer.cpp
+@@ -23,6 +23,7 @@
+ #include "interpolator.hpp"
+ #include "pacing_clock.hpp"
+ #include "performance.hpp"
++#include "policy.hpp"
+ #include <d3d11_4.h>
+ #include <dxgi1_6.h>
+ #include <string>
+@@ -48,6 +49,18 @@
+  wchar_t value[16]{};GetPrivateProfileStringW(L"RTX20",L"Vulkan",L"1",value,16,ini.c_str());
+  return value[0]!=L'0'&&_wcsicmp(value,L"off")!=0&&_wcsicmp(value,L"false")!=0;
+ }
++// fix28-lock: Pacing from SM86_PACING or [RTX20] Pacing (default locked).
++bool locked_pacing(){
++ auto e=environment(L"SM86_PACING");
++ if(e.empty()){
++  std::wstring exe(32768,L'\0');const DWORD n=GetModuleFileNameW(nullptr,exe.data(),DWORD(exe.size()));
++  if(n&&n<exe.size()){
++   exe.resize(n);const auto slash=exe.find_last_of(L"\\/");const auto ini=(slash==std::wstring::npos?std::wstring():exe.substr(0,slash+1))+L"nvsmooth30.ini";
++   wchar_t value[32]{};GetPrivateProfileStringW(L"RTX20",L"Pacing",L"locked",value,32,ini.c_str());e=value;
++  }
++ }
++ return sm20::parse_pacing(e.c_str())==sm20::Pacing::locked;
++}
+ std::string utf8(const std::wstring& w){
+  if(w.empty())return {};const int n=WideCharToMultiByte(CP_UTF8,0,w.data(),int(w.size()),nullptr,0,nullptr,nullptr);
+  std::string out(std::size_t(n),'\0');WideCharToMultiByte(CP_UTF8,0,w.data(),int(w.size()),out.data(),n,nullptr,nullptr);return out;
+@@ -317,6 +330,7 @@
+  if(!owner.empty()&&owner!=pid&&!module_in_executable_folder()){layerOnly=true;g_status="layer only (inherited by another program)";return;}
+  smvk::interop_extensions={VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME};
+  smvk::generator_factory=&make_bridge;
++ smvk::lock_fifo=locked_pacing();
+  register_layer();
+ }} setup;
+ }
+--- a/source/rtx20/vulkan_layer_core.hpp
++++ b/source/rtx20/vulkan_layer_core.hpp
+@@ -121,6 +121,16 @@
+ inline GeneratorFactory generator_factory=nullptr;
+ // Device requirements of the generator, checked at vkCreateDevice.
+ inline std::vector<const char*> interop_extensions;
++// fix28-lock (Pacing=locked): generating swapchains are created with FIFO
++// (always supported), so the generated and the real image each take one
++// refresh. MAILBOX would replace the generated image before it is shown and
++// IMMEDIATE would show it for a fraction of a refresh. Repeated acquire
++// timeouts (no image released for 25 ms: minimized, display asleep) switch to
++// a nonblocking acquire for nonblocking_cooldown generated frames only, then
++// blocking again; Fix28 switched for the rest of the session and dropped
++// generated frames whenever no image was free.
++inline bool lock_fifo=false;
++inline constexpr unsigned nonblocking_cooldown=300;
+ 
+ struct Slot {
+  VkCommandBuffer captureCommands{},generatedCommands{};
+@@ -138,7 +148,7 @@
+  // releases at the next refresh, as the game's own acquire does; without it
+  // most generated frames would find no free image. Repeated timeouts fall
+  // back to the nonblocking acquire.
+- bool blockingAcquire{};unsigned acquireTimeouts{};
++ bool blockingAcquire{};unsigned acquireTimeouts{},nonblockingLeft{},cooldowns{};
+  ChainSetup setup;
+ };
+ inline constexpr std::uint64_t generated_acquire_timeout_ns=25000000ull;
+@@ -263,10 +273,18 @@
+  VkResult present_generated(std::uint64_t ready,std::uint64_t copied,bool& submitted)override{
+   auto& d=*c.device;auto& g=*c.generator;submitted=false;
+   std::uint32_t index=0;
+-  const auto acquired=d.AcquireNextImageKHR(d.device,c.swapchain,c.blockingAcquire?generated_acquire_timeout_ns:0,s.acquired,VK_NULL_HANDLE,&index);
++  const bool blocking=c.blockingAcquire&&!c.nonblockingLeft;
++  if(c.nonblockingLeft)--c.nonblockingLeft;
++  const auto acquired=d.AcquireNextImageKHR(d.device,c.swapchain,blocking?generated_acquire_timeout_ns:0,s.acquired,VK_NULL_HANDLE,&index);
+   if(acquired==VK_NOT_READY||acquired==VK_TIMEOUT){
+-   if(c.blockingAcquire&&++c.acquireTimeouts>=3){
+-    c.blockingAcquire=false;log("[vulkan] No free swapchain image within 25 ms three times in a row: generated frames now use a nonblocking acquire (skipped when no image is free).\n");
++   if(blocking&&++c.acquireTimeouts>=3){
++    c.acquireTimeouts=0;
++    if(lock_fifo){
++     c.nonblockingLeft=nonblocking_cooldown;
++     if(++c.cooldowns<=3)logf("[vulkan] No free swapchain image within 25 ms three times in a row: nonblocking acquire for the next %u generated frames, then blocking again.\n",nonblocking_cooldown);
++    }else{
++     c.blockingAcquire=false;log("[vulkan] No free swapchain image within 25 ms three times in a row: generated frames now use a nonblocking acquire (skipped when no image is free).\n");
++    }
+    }
+    return VK_NOT_READY;
+   }
+--- a/source/rtx20/vulkan_layer_entry.hpp
++++ b/source/rtx20/vulkan_layer_entry.hpp
+@@ -139,6 +139,10 @@
+    // game does not hold.
+    if(!caps.maxImageCount||modified.minImageCount<caps.maxImageCount)++modified.minImageCount;
+    modified.minImageCount=std::max(modified.minImageCount,caps.minImageCount);
++   if(lock_fifo&&modified.presentMode!=VK_PRESENT_MODE_FIFO_KHR){
++    logf("[vulkan] Pacing=locked: present mode %d replaced by FIFO for even 2x presentation.\n",int(modified.presentMode));
++    modified.presentMode=VK_PRESENT_MODE_FIFO_KHR;
++   }
+   }else eligible=false;
+  }else eligible=false;
+  // The old swapchain's generator ends before the new chain is created.
+@@ -152,10 +156,10 @@
+  if(eligible){
+   auto c=std::make_unique<Chain>();c->device=d;c->swapchain=*out;c->format=info->imageFormat;c->extent=info->imageExtent;
+   std::uint32_t n=0;d->GetSwapchainImagesKHR(device,*out,&n,nullptr);c->images.resize(n);d->GetSwapchainImagesKHR(device,*out,&n,c->images.data());
+-  c->setup.device=d;c->setup.swapchain=*out;c->setup.format=info->imageFormat;c->setup.extent=info->imageExtent;c->setup.presentMode=info->presentMode;
+-  c->blockingAcquire=info->presentMode==VK_PRESENT_MODE_FIFO_KHR||info->presentMode==VK_PRESENT_MODE_FIFO_RELAXED_KHR;
++  c->setup.device=d;c->setup.swapchain=*out;c->setup.format=info->imageFormat;c->setup.extent=info->imageExtent;c->setup.presentMode=modified.presentMode;
++  c->blockingAcquire=modified.presentMode==VK_PRESENT_MODE_FIFO_KHR||modified.presentMode==VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+   {std::scoped_lock l(d->instance->surfaceLock);auto w=d->instance->surfaceWindows.find(info->surface);if(w!=d->instance->surfaceWindows.end())c->setup.window=w->second;}
+-  logf("[vulkan] Swapchain %ux%u format=%d images=%u present_mode=%d registered for generation.\n",info->imageExtent.width,info->imageExtent.height,int(info->imageFormat),n,int(info->presentMode));
++  logf("[vulkan] Swapchain %ux%u format=%d images=%u present_mode=%d registered for generation.\n",info->imageExtent.width,info->imageExtent.height,int(info->imageFormat),n,int(modified.presentMode));
+   auto& s=state();std::scoped_lock l(s.lock);s.chains[*out]=std::move(c);
+  }else logf("[vulkan] Swapchain %ux%u format=%d passed through (unsupported format or usage, or no interop).\n",info->imageExtent.width,info->imageExtent.height,int(info->imageFormat));
+  return VK_SUCCESS;
+--- a/source/rtx20/vulkan_layer_test.cpp
++++ b/source/rtx20/vulkan_layer_test.cpp
+@@ -28,6 +28,7 @@
+  }
+ public:
+  explicit CopyGenerator(const smvk::ChainSetup& s):d(*s.device){
++  std::fprintf(stderr,"[test] generator present_mode=%d\n",int(s.presentMode));
+   capture_=image(s.format,s.extent,memory_[0]);output_=image(s.format,s.extent,memory_[1]);
+   VkSemaphoreTypeCreateInfo ti{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};ti.semaphoreType=VK_SEMAPHORE_TYPE_TIMELINE;
+   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};si.pNext=&ti;d.CreateSemaphore(d.device,&si,nullptr,&timeline_);
+@@ -89,6 +90,8 @@
+ struct Init{Init(){
+  smvk::log_sink=[](const char* t){std::fputs(t,stderr);};
+  smvk::generator_factory=&make;smvk::interop_extensions={};
++ // fix28-lock: Pacing=locked forces FIFO on generating swapchains.
++ if(std::getenv("SMVK_LOCK_FIFO"))smvk::lock_fifo=true;
+ }} init;
+ }
+ extern "C" __attribute__((visibility("default"))) unsigned smvk_test_counts(unsigned which){
