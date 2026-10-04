@@ -1,6 +1,25 @@
 # SmoothMotion 2.8.5 Fix28 qua2 + locked 2x pacing (`fix28-qua2-lock`)
 
-This build adds a presentation mode, `Pacing=locked`, that always presents
+> [!WARNING]
+> **Untested build: never run on Windows or on an NVIDIA GPU.**
+>
+> These binaries were cross-compiled on Linux and tested only with host
+> unit tests and a software Vulkan driver (Mesa lavapipe). None of the
+> following has been run:
+>
+> - the module loading in a real game (DirectX 11, DirectX 12 or Vulkan);
+> - NVIDIA optical flow or the synthesis shader on a GPU;
+> - presentation on a real display, so **the "always 2x, no stutter" goal is
+>   not confirmed**: it is what the code is designed to do, not a measured
+>   result;
+> - frame pacing, latency, GPU cost, G-Sync/FreeSync behaviour.
+>
+> The build may fail to start, crash the game, or pace frames differently
+> from what this README describes. Keep a copy of the files you replace,
+> and treat the first sessions as a test: check `nvsmooth30.log` (see
+> [Check it in the log](#check-it-in-the-log)) and report the result.
+
+This build adds a presentation mode, `Pacing=locked`, designed to always present
 exactly one generated frame per real frame, with every frame on screen for
 the same time. It also fixes a Vulkan frame-order bug and makes Vulkan
 games use the same locked pacing.
@@ -11,10 +30,6 @@ games use the same locked pacing.
 - Built from the Fix28 source in this repository's history
   (`rtx20/SmoothMotion-2.8.5-RTX20-RTX30-DX12-Preview2-Fix28-Test.zip`) with
   LLVM-MinGW 20250924 (clang 21.1.2), the same compiler as Fix28.
-
-> **Not tested on Windows with an NVIDIA GPU.** Host tests and a Vulkan run
-> on Mesa lavapipe pass (see "What was tested"). Please send
-> `nvsmooth30.log` after a session either way.
 
 ## What "always 2x" means here
 
@@ -107,6 +122,11 @@ as administrator.
 
 ## Install
 
+> [!IMPORTANT]
+> Untested on Windows/NVIDIA (see the warning at the top). Back up the
+> game's current `new.asi` or `version.dll` before replacing it, so you can
+> restore it if the game does not start or behaves differently.
+
 Same as qua2. Close the game, keep copies of the files you replace.
 
 - **ASI loader route:** replace the game's `new.asi` with `bin/new.asi`.
@@ -160,9 +180,13 @@ Runtime status fields (in `performance_gpu_us`):
   with no layer loaded (14 errors for the IMMEDIATE case without the layer,
   10 with the layer in locked mode, 12 in other modes). The test now
   requires the layer to add no error to that baseline.
-- **Not run:** Windows, NVIDIA optical flow, real displays, the D3D11/D3D12
-  smoke tests, `verify.py` (it requires Fix28's shader regression to pass,
-  which the qua2 shader does not).
+- **Not run (the gaps that matter most):** anything on Windows; anything on
+  an NVIDIA GPU (optical flow, synthesis, D3D11/D3D12 interop); a real game;
+  a real display, so pacing, stutter and latency are unmeasured; the
+  D3D11/D3D12 smoke tests; `verify.py` (it requires Fix28's shader
+  regression to pass, which the qua2 shader does not). The host tests check
+  the pacing logic and the order and intervals of Present calls, not what
+  the display shows.
 
 ## Rebuild
 
